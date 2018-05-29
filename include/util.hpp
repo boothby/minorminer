@@ -30,7 +30,7 @@ using std::chrono::duration;
 using std::chrono::duration_cast;
 
 // Select some default structures and types
-using distance_t = long long int;
+using distance_t = double;
 constexpr distance_t max_distance = numeric_limits<distance_t>::max();
 using RANDOM = fastrng;
 using clock = std::chrono::high_resolution_clock;
