@@ -404,4 +404,4 @@ class chain {
     //! non-const unsafe data accessor
     inline pair<int, int> &retrieve(int q) { return (*data.find(q)).second; }
 };
-}
+}  // namespace find_embedding

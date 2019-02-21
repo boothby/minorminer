@@ -1,4 +1,5 @@
 #pragma once
+#include <iostream>
 #include <stdexcept>
 namespace find_embedding {
 
@@ -68,7 +69,12 @@ class pairing_node : public N {
         // * doesn't check for nullval
         // * doesn't ensure that the returned node has next = nullval
         // * doesn't check that this < other
+        minorminer_assert(next == nullptr);
         minorminer_assert(other != nullptr);
+        minorminer_assert(other->next == nullptr);
+        if (!(*other < *this))
+            std::cout << "[" << other->node << "," << other->dirt << "," << other->dist << "] >= [" << N::node << ","
+                      << N::dirt << "," << N::dist << "]" << this << ":" << other << std::endl;
         minorminer_assert(*other < *this);
 
         other->next = desc;
@@ -78,25 +84,19 @@ class pairing_node : public N {
 
   public:
     inline pairing_node<N> *merge_pairs() {
-        pairing_node<N> *a = this;
+        if (next == nullptr) return this;
         pairing_node<N> *r = next;
-        if (r == nullptr) {
-            return a;
-        } else {
-            pairing_node<N> *c = r->next;
-            r->next = nullptr;
-            r = a->merge_roots_unsafe(r);
-            r->next = nullptr;
-            a = c;
-        }
+        pairing_node<N> *a = r->next;
+        next = r->next = nullptr;
+        r = merge_roots_unsafe(r);
         while (a != nullptr) {
             pairing_node<N> *b = a->next;
             if (b == nullptr) {
                 return a->merge_roots_unsafe(r);
             } else {
                 pairing_node<N> *c = b->next;
+                a->next = b->next = nullptr;
                 b = a->merge_roots_unsafe(b);
-                b->next = nullptr;
                 r = b->merge_roots_unsafe(r);
                 a = c;
             }
@@ -132,6 +132,7 @@ class pairing_queue {
 
     template <class... Args>
     inline void emplace(Args... args) {
+        minorminer_assert(0 <= count && count < size);
         N *x = mem + (count++);
         x->refresh(args...);
         root = x->merge_roots(root);
@@ -145,4 +146,4 @@ class pairing_queue {
         root = root->merge_pairs();
     }
 };
-}
+}  // namespace find_embedding

@@ -676,6 +676,26 @@ def test_chainlength_slow():
 
 
 @success_count(30)
+def test_chainlength_fast_parallel():
+    C = Chimera(4)
+    K = Clique(16)
+    e = find_embedding(K, C, tries=1, chainlength_patience=1, threads=2)
+    if not len(e):
+        return False
+    return max(len(c) for c in e.values()) <= 7
+
+
+@success_count(30)
+def test_chainlength_slow_parallel():
+    C = Chimera(4)
+    K = Clique(16)
+    e = find_embedding(K, C, tries=1, chainlength_patience=10, threads=15)
+    if not len(e):
+        return False
+    return max(len(c) for c in e.values()) <= 6
+
+
+@success_count(30)
 def test_isolated_variables_as_if_that_was_smart():
     # embedding isolated notes is literally the worst way to use a quantum computer.
     #                    WHY AM I ASKED FOR THIS FEATURE

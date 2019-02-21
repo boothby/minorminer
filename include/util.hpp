@@ -14,18 +14,18 @@
 namespace find_embedding {
 // Import some things from the std library
 using std::default_random_engine;
-using std::vector;
-using std::string;
-using std::shared_ptr;
 using std::map;
-using std::unordered_map;
-using std::pair;
-using std::numeric_limits;
-using std::uniform_int_distribution;
-using std::min;
 using std::max;
-using std::thread;
+using std::min;
 using std::mutex;
+using std::numeric_limits;
+using std::pair;
+using std::shared_ptr;
+using std::string;
+using std::thread;
+using std::uniform_int_distribution;
+using std::unordered_map;
+using std::vector;
 using std::chrono::duration;
 using std::chrono::duration_cast;
 
@@ -40,6 +40,11 @@ template <typename P>
 using max_queue = std::priority_queue<priority_node<P, max_heap_tag>>;
 
 using distance_queue = pairing_queue<pairing_node<priority_node<distance_t, min_heap_tag>>>;
+
+// Some empty structs for template tags
+struct default_tag {};
+struct embedded_tag {};
+struct skip_diagnostic_tag {};
 
 //! Interface for communication between the library and various bindings.
 //!
@@ -208,4 +213,4 @@ void collectMinima(const vector<T>& input, vector<int>& output) {
         index++;
     }
 }
-}
+}  // namespace find_embedding
