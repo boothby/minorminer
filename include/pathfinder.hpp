@@ -663,7 +663,6 @@ class pathfinder_serial : public pathfinder_base<embedding_problem_t> {
                                              embedded_tag{});
         }
         for (distance_t D = 0; D <= last_size; D++) {
-            int v_i = 0;
             for (auto &v : super::ep.var_neighbors(u)) {
                 auto &parent = super::parents[v];
                 auto &permutation = super::qubit_permutations[v];
@@ -682,8 +681,6 @@ class pathfinder_serial : public pathfinder_base<embedding_problem_t> {
                         emb.construct_chain_steiner(u, q, super::parents, super::distances, super::visited_list);
                         unsigned int cs = emb.chainsize(u);
                         if (cs < best_size) {
-                            std::cout << "?";
-
                             best_size = cs;
                             if (best_size < stopcheck) goto finish;
                             emb.freeze_out(u);
@@ -708,10 +705,6 @@ class pathfinder_serial : public pathfinder_base<embedding_problem_t> {
         }
         emb.thaw_back(u);
     finish:
-        if (best_size < std::numeric_limits<unsigned int>::max())
-            std::cout << "!";
-        else
-            std::cout << "#";
         emb.flip_back(u, target_chainsize);
     }
 };
@@ -750,7 +743,7 @@ class pathfinder_parallel : public pathfinder_base<embedding_problem_t> {
 
             if (v < 0) break;
 
-            e_neighbor(v, i);
+            e_neighbor(v);
 
             get_job.lock();
         }
@@ -800,7 +793,10 @@ class pathfinder_parallel : public pathfinder_base<embedding_problem_t> {
               num_threads(min(p_.threads, n_q)),
               futures(num_threads),
               thread_weight(num_threads),
-              threadEmbedding(num_threads, super::ep) {}
+              threadEmbedding() {
+        threadEmbedding.reserve(num_threads);
+        for (int i = num_threads; i--;) threadEmbedding.emplace_back(super::ep);
+    }
     virtual ~pathfinder_parallel() {}
 
     virtual void prepare_root_distances(const embedding_t &emb, const int u) override {
@@ -815,7 +811,7 @@ class pathfinder_parallel : public pathfinder_base<embedding_problem_t> {
         });
 
         exec_neighbors(
-                [this, &emb, u](int v, int) {
+                [this, &emb, u](int v) {
                     vector<int> &visited = super::visited_list[v];
                     super::ep.prepare_visited(visited, u, v);
                     super::compute_distances_from_chain(emb, v, visited);
@@ -846,21 +842,21 @@ class pathfinder_parallel : public pathfinder_base<embedding_problem_t> {
         int last_size = emb.freeze_out(u);
         auto &counts = super::total_distance;
         exec_chunked([&counts](int a, int b) { std::fill(counts.begin() + a, counts.begin() + b, 0); });
-        int best_root = -1, degree = super::ep.var_neighbors(u, shuffle_first{}).size();
+        int best_root = -1;
         unsigned int best_size = std::numeric_limits<unsigned int>::max();
         unsigned int stopcheck = static_cast<unsigned int>(max(last_size, target_chainsize));
 
         exec_neighbors(
-                [this, &emb, u](int v, int i) {
+                [this, &emb, u](int v) {
                     super::ep.prepare_visited(super::visited_list[v], u, v);
                     super::dijkstra_initialize_chain(emb, v, super::parents[v], super::visited_list[v],
                                                      super::queues[v], embedded_tag{});
                 },
                 emb, u);
 
-        for (int D = last_size; D < 2 * last_size; D += last_size) {
+        for (int D = last_size; D <= last_size; D += last_size) {
             exec_neighbors(
-                    [this, &emb, D](const int v, const int i) {
+                    [this, &emb, D](const int v) {
                         auto &parent = super::parents[v];
                         auto &permutation = super::qubit_permutations[v];
                         auto &distance = super::distances[v];
@@ -905,7 +901,6 @@ class pathfinder_parallel : public pathfinder_base<embedding_problem_t> {
                                                                super::visited_list);
                     unsigned int cs = threadEmbedding[i].chainsize(u);
                     if (cs < best_size_thread) {
-                        std::cout << "?";
                         best_size_thread = cs;
                         best_root_thread = q;
                         if (cs < stopcheck) goto finish_thread;
@@ -916,7 +911,6 @@ class pathfinder_parallel : public pathfinder_base<embedding_problem_t> {
                 chunk_sizes[i] = std::pair<unsigned int, int>{best_size_thread, best_root_thread};
             });
             for (auto &sq : chunk_sizes) {
-                std::cout << "(" << sq.first << "," << sq.second << ")";
                 if (sq.first < best_size) {
                     best_size = sq.first;
                     best_root = sq.second;
@@ -926,10 +920,8 @@ class pathfinder_parallel : public pathfinder_base<embedding_problem_t> {
         }
         if (best_root != -1) {
         reconstruct:
-            std::cout << "!";
             emb.construct_chain_steiner(u, best_root, super::parents, super::distances, super::visited_list);
         } else {
-            std::cout << "#";
             emb.thaw_back(u);
         }
         emb.flip_back(u, target_chainsize);

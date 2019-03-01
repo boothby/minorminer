@@ -59,6 +59,7 @@ class embedding {
               qub_weight(num_qubits + num_reserved, 0),
               var_embedding(),
               frozen() {
+        var_embedding.reserve(num_vars + num_fixed);
         for (int q = 0; q < num_vars + num_fixed; q++) var_embedding.emplace_back(qub_weight, q);
         DIAGNOSE("post base_construct");
     }
@@ -101,7 +102,10 @@ class embedding {
 
     //! copy the data from `other.var_embedding` into `this.var_embedding`
     embedding<embedding_problem_t> &operator=(const embedding<embedding_problem_t> &other) {
-        if (this != &other) var_embedding = other.var_embedding;
+        if (this != &other) {
+            minorminer_assert(var_embedding.size() == other.var_embedding.size());
+            for (int i = var_embedding.size(); i--;) var_embedding[i] = other.var_embedding[i];
+        }  // var_embedding = other.var_embedding;
         DIAGNOSE("operator=");
         return *this;
     }
@@ -540,4 +544,4 @@ class embedding {
         }
     }
 };
-}
+}  // namespace find_embedding

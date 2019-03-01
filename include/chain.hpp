@@ -88,8 +88,11 @@ class chain {
     chain &operator=(const chain &c) {
         clear();
         data = c.data;
-        for (auto &q : c) qubit_weight[q]++;
         links = c.links;
+        for (auto &q : c) {
+            minorminer_assert(0 <= q && q < qubit_weight.size());
+            qubit_weight[q]++;
+        }
         DIAGNOSE("operator=chain");
         return *this;
     }
