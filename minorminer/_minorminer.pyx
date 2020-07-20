@@ -57,7 +57,7 @@ This implementation adds several useful features:
 [1] https://arxiv.org/abs/1406.2741
 """
 include "_minorminer_h.pxi"
-import os as _os, logging as _logging, networkx as _nx
+import os as _os, logging as _logging, networkx as _nx, numpy as _np
 import minorminer.busclique as _busclique
 import minorminer.layout as _mml
 
@@ -267,8 +267,11 @@ cdef _bipartition(S):
         if x in X[0] or x in X[1]:
             continue
         side = len(X[0]) > len(X[1])
-        stack = (x, list(S[x]), side, ())
         X[side].add(x)
+        nx = S[x]
+        if not len(nx):
+            continue
+        stack = (x, list(nx), side, ())
         while stack:
             x, nx, side, stack = stack
             y = nx.pop()
@@ -282,13 +285,31 @@ cdef _bipartition(S):
 
     return X
 
-def _clique_density_thresholds(T):
-    #TODO tune the heck out of this
-    return .7, .8
+def _topology_size(T, family):
+    if family == 'chimera':
+        return T.graph['rows'] * T.graph['columns'] * T.graph['tile'] * 2.
+    if family == 'pegasus':
+        m = T.graph['rows']
+        return (24*m-8)*(m-1.)
 
-def _biclique_density_thresholds(T):
-    #TODO tune the heck out of this
-    return .7, .8
+def _clique_density_model(S_size, S_density, T_yield, T_maxclique):
+    # the values in this method have been obtained through training a pair of
+    # logistic models.  This is expected to change.  Many thanks to Pau Farré
+    # for guiding me through the ML process.
+    size_ratio = S_size / float(T_maxclique)
+    z = T_yield * 2.295785629772165 + S_density * -3.7308376154503233 + size_ratio * -3.759198077255687 + T_yield * S_density * -2.9353587388948665 + T_yield * size_ratio * 4.291401968214293 + S_density * size_ratio * 4.56719283928291
+    if z + -6.033772835842247 > 0:
+        return 'fail'
+    z = T_yield * -0.5864510079221583 + S_density * -2.4253292677141816 + size_ratio * 1.2498217311723547 + T_yield * S_density * -2.723229899951336 + T_yield * size_ratio * 0.7978599472909833 + S_density * size_ratio * -0.26637683575926885
+    if z + 3.8205998722760075 > 0:
+        return 'heuristic'
+    else:
+        return 'busclique'
+
+
+def _biclique_density_model(A_size, B_size, S_density, T_yield, T_maxclique):
+    # TODO train up a better model!
+    return _clique_density_model(A_size + B_size, S_density, T_yield, T_maxclique)
 
 def minor_embed(S, T, verbose = 0, interactive = False, effort = 1):
     cdef _input_parser _in = _input_parser(None, None)
@@ -314,32 +335,39 @@ def minor_embed(S, T, verbose = 0, interactive = False, effort = 1):
 
     params = {'verbose': verbose, 'interactive': interactive}
 
+    # TODO add verbosity to busclique
+    bc = _busclique.busgraph_cache(T)
+
     bip = _bipartition(S)
     if bip is None:
         n = len(S)
-        layout_t, clique_t = _clique_density_thresholds(T)
-        density = 2*S.number_of_edges() / (n*n - n)
-        if density < layout_t:
-            return _mml.find_embedding(S, T, **params)
-        elif density < clique_t:
+        S_density = 2*S.number_of_edges() / (n*n - n)
+        T_yield = float(len(T)) / _topology_size(T, family)
+        T_maxclique = float(len(bc.largest_clique()))
+        method = _clique_density_model(n, S_density, T_yield, T_maxclique)
+        if method == 'fail':
+            return {}
+        elif method == 'heuristic':
             _in.set_target(T)
             _in.parse_params(params)
             return _find_embedding(_in)
         else:
-            return _busclique.find_clique_embedding(S, T)
+            return bc.find_clique_embedding(S)
     else:
         A, B = bip
-        density = S.number_of_edges() / (len(A)*len(B))
-        layout_t, biclique_t = _biclique_density_thresholds(T)
-        if density < layout_t:
-            return _mml.find_embedding(S, T, **params)
-        elif density < biclique_t:
+        S_density = S.number_of_edges() / (len(A)*len(B))
+        T_maxclique = float(len(bc.largest_balanced_biclique()))
+        T_yield = float(len(T)) / _topology_size(T, family)
+        method = _biclique_density_model(len(A), len(B), S_density, T_yield,
+                                         T_maxclique)
+        if method == 'fail':
+            return {}
+        elif method == 'heuristic':
             _in.set_target(T)
             _in.parse_params(params)
             return _find_embedding(_in)
         else:
-            return _busclique.find_clique_embedding(S, T)
-
+            return bc.find_biclique_embedding(A, B)
 
 cdef class _input_parser:
     cdef input_graph Sg, Tg
