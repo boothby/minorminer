@@ -18,7 +18,7 @@
 #include "clique_cache.hpp"
 #include "small_cliques.hpp"
 #include "topo_cache.hpp"
-
+#include <memory>
 
 namespace busclique {
 
@@ -245,5 +245,83 @@ void best_cliques(topo_cache<topo_spec> &topology,
         }
     } while(topology.next());
 }
+
+template<typename topo_spec>
+class max_cliques_by_width_iter {
+    typedef vector<std::tuple<
+        std::shared_ptr<bundle_cache<topo_spec>>,
+        std::shared_ptr<clique_cache<topo_spec>>,
+        std::shared_ptr<clique_iterator<topo_spec>>,
+        vector<vector<size_t>>
+    >> iter_t;
+    iter_t iters;
+  public:
+    const size_t max_size;
+  private:
+    pair<iter_t, size_t> make_data(topo_cache<topo_spec> &topology, size_t width, size_t max_size) {
+        iter_t _iters;
+        std::shared_ptr<bundle_cache<topo_spec>> bc;
+        std::shared_ptr<clique_cache<topo_spec>> cc;
+        std::shared_ptr<clique_iterator<topo_spec>> ci;
+        vector<vector<size_t>> emb;
+        size_t _size = 0;
+        topology.reset();
+        do {
+            bc = std::make_shared<bundle_cache<topo_spec>>(topology.cells);
+            cc = std::make_shared<clique_cache<topo_spec>>(topology.cells, *bc, width);
+            ci = std::make_shared<clique_iterator<topo_spec>>(topology.cells, *cc);
+            if (ci.get()->next(emb)) {
+                if (emb.size() > max(_size, max_size)) {
+                    _iters.clear();
+                    _iters.emplace_back(move(bc), move(cc), move(ci), emb);
+                }
+            }
+        } while(topology.next());
+        return make_pair(_iters, _size);    
+    }
+
+    max_cliques_by_width_iter(pair<iter_t, size_t> data) : iters(data.first), max_size(data.second) {}
+  public:
+    max_cliques_by_width_iter(topo_cache<topo_spec> &t, size_t w, size_t m) 
+        : max_cliques_by_width_iter(make_data(t, w, m)) {}
+
+    bool next(vector<vector<size_t>> &emb) {
+        if (iters.size()) {
+            auto &back = iters.back();
+            auto &ci = *std::get<2>(back);
+            if (!(ci.next(emb))) {
+                emb = std::get<3>(back);
+                iters.pop_back();
+            }
+            return true;
+        }
+        return false;
+    }
+};
+
+template<typename topo_spec>
+class max_cliques_iter {
+    vector<max_cliques_by_width_iter<topo_spec>> iters;
+  public:
+    max_cliques_iter(topo_cache<topo_spec> &topology) {
+        size_t max_size = 0;
+        for (size_t w = coordinate_index(topology.topo.dim_x); w-->2;) {
+            max_cliques_by_width_iter<topo_spec> it(topology, w, max_size);
+            if (it.max_size > max_size) {
+                iters.clear();
+                iters.push_back(it);
+            } else if (it.max_size == max_size) {
+                iters.push_back(it);
+            }
+        }
+    }
+
+    bool next(vector<vector<size_t>> &emb) {
+        while (iters.size() && !(iters.back().next(emb)))
+            iters.pop_back();
+        return iters.size() != 0;
+    }    
+};
+
 
 }

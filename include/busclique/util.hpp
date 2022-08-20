@@ -77,6 +77,22 @@ const uint8_t first_bit[256] = {0, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
 const uint8_t mask_bit[8] = {1, 2, 4, 8, 16, 32, 64, 128};
 const uint16_t mask_subsets[8] = {1, 2, 4, 8, 16, 32, 64, 128};
 
+class corner_iter {
+    corner c;
+    class it {
+        corner c;
+      public:
+        it(corner c) : c(c) {}
+        bool operator!=(const it &other) const { return c != other.c; }
+        corner operator*() const { return static_cast<corner>(mask_bit[first_bit[c]]); }
+        it &operator++() { c = static_cast<corner>(c^operator*()); return *this; }
+    };
+  public:
+    corner_iter(corner c) : c(c) {}
+    it begin() { return it(c); }
+    it end() { return it(corner::none); }
+};
+
 const std::set<size_t> _emptyset;
 
 

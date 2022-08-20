@@ -29,18 +29,18 @@ else:
 
 extra_compile_args = {
     'msvc': ['/std:c++latest', '/MT', '/EHsc', '/O2' ],
-    'unix': ['-std=c++11', '-Wall', '-Wno-format-security', '-Ofast', '-fomit-frame-pointer', '-DNDEBUG', '-fno-rtti'],
+    'unix': ['-std=c++14', '-Wall', '-Wno-format-security', '-Ofast', '-fomit-frame-pointer', '-DNDEBUG', '-fno-rtti'],
 }
 
 extra_link_args = {
     'msvc': [],
-    'unix': ['-std=c++11'],
+    'unix': ['-std=c++14'],
 }
 
 
 if '--debug' in sys.argv or '-g' in sys.argv or 'CPPDEBUG' in os.environ:
     extra_compile_args['msvc'].append('/DCPPDEBUG')
-    extra_compile_args['unix'] = ['-std=c++1y', '-Wall',# '-O0',
+    extra_compile_args['unix'] = ['-std=c++14', '-Wall', '-O0',
                                   '-g', '-fipa-pure-const', '-DCPPDEBUG']
 
 if 'SAFE_COORDS' in os.environ:

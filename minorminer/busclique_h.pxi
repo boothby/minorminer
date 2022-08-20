@@ -12,9 +12,11 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+from libcpp cimport bool
 from libcpp.vector cimport vector
 from libcpp.pair cimport pair
 from libc.stdint cimport uint8_t, uint32_t, uint64_t
+
 ctypedef vector[size_t] nodes_t
 ctypedef vector[vector[size_t]] embedding_t
 ctypedef vector[pair[size_t,size_t]] edges_t
@@ -24,6 +26,7 @@ cdef extern from "../include/busclique/util.hpp" namespace "busclique":
         size_y dim_y
         size_x dim_x
         size_t shore
+        uint64_t seed
         pegasus_spec(size_t, vector[uint8_t], vector[uint8_t], uint32_t)
         nodes_t fragment_nodes(nodes_t)
 
@@ -31,6 +34,7 @@ cdef extern from "../include/busclique/util.hpp" namespace "busclique":
         size_y dim_y
         size_x dim_x
         size_t shore
+        uint64_t seed
         chimera_spec(size_t, size_t, uint8_t, uint32_t)
         nodes_t fragment_nodes(nodes_t)
 
@@ -38,6 +42,7 @@ cdef extern from "../include/busclique/util.hpp" namespace "busclique":
         size_y dim_y
         size_x dim_x
         size_t shore
+        uint64_t seed
         zephyr_spec(size_t, uint8_t, uint32_t)
         nodes_t fragment_nodes(nodes_t)
 
@@ -46,7 +51,12 @@ cdef extern from "../include/busclique/util.hpp" namespace "busclique":
 
     cdef cppclass serialize_write_tag:
         serialize_write_tag()
-    
+
+cdef extern from "../include/fastrng.hpp" namespace "fastrng":
+    cdef cppclass fastrng:
+        fastrng()
+        fastrng(uint64_t)
+        void seed(uint64_t)
 
 cdef extern from "../include/busclique/cell_cache.hpp" namespace "busclique":
     cdef cppclass cell_cache[T]:
@@ -63,21 +73,34 @@ cdef extern from "../include/busclique/clique_cache.hpp" namespace "busclique":
 
     cdef cppclass clique_iterator[T]:
         clique_iterator(cell_cache[T] &, clique_cache[T] &)
-        int next(embedding_t &)
+        bool next(embedding_t &)
+
+cdef extern from "../include/busclique/clique_sampler.hpp" namespace "busclique":
+    cdef cppclass clique_sampler[T]:
+        clique_sampler(clique_cache[T] &)
+        void sample(fastrng &, embedding_t &)
 
 cdef extern from "../include/busclique/topo_cache.hpp" namespace "busclique":
     cdef cppclass topo_cache[T]:
         T topo
+        cell_cache[T] cells
         topo_cache(T, nodes_t &, edges_t &)
         size_t serialize[t](t, uint8_t *) const
         nodes_t fragment_nodes() const
         edges_t fragment_edges() const
-        void set_mask_bound(uint32_t)
+        void set_mask_bound(uint64_t)
+        uint64_t get_mask_bound()
+        bool next()
+        void reset()
 
 cdef extern from "../include/busclique/find_clique.hpp" namespace "busclique":
     int find_clique[T](topo_cache[T] &, size_t, embedding_t &)
     void best_cliques[T](topo_cache[T], vector[embedding_t] &, embedding_t &)
     int short_clique[T](T, nodes_t, edges_t, embedding_t &)
+
+    cdef cppclass max_cliques_iter[T]:
+        max_cliques_iter(topo_cache[T] &)
+        bool next(embedding_t &)
 
 cdef extern from "../include/busclique/find_biclique.hpp" namespace "busclique":
     void best_bicliques[T](topo_cache[T], vector[pair[pair[size_t, size_t], embedding_t]] &)

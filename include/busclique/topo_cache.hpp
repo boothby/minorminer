@@ -75,6 +75,14 @@ class topo_cache {
             next();
         }
     }
+    
+    void reset(uint64_t seed) {
+        if(mask_num > 0) {
+            mask_num = 0;
+            rng = fastrng(seed);
+            next();
+        }    
+    }
 
     template<typename serialize_tag>
     size_t serialize(serialize_tag, uint8_t *output) const {
@@ -137,6 +145,10 @@ class topo_cache {
     void set_mask_bound(uint64_t bound) {
         mask_bound = bound;
         log_mask_bound = log2(static_cast<long double>(mask_bound));
+    }
+
+    uint64_t get_mask_bound() {
+        return mask_bound;
     }
 
   private:

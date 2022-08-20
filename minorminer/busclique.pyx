@@ -1014,6 +1014,65 @@ cdef class _pegasus_busgraph:
         else:
             return self.topo.topo.fragment_nodes(nodes)
 
+    def all_max_embeddings(self):
+        cdef max_cliques_iter[pegasus_spec] *mci = new max_cliques_iter[pegasus_spec](self.topo[0])
+        cdef embedding_t emb;
+        while mci.next(emb):
+            yield self.relabel(dict(enumerate(emb)))
+        del mci
+        
+    def num_max_embeddings(self):
+        cdef max_cliques_iter[pegasus_spec] *mci = new max_cliques_iter[pegasus_spec](self.topo[0])
+        cdef embedding_t emb;
+        cdef size_t n = 0;
+        while mci.next(emb):
+            n += 1
+        del mci
+        return n
+
+    def random_max_cliques(self, size_t width, seed=None):
+        return _pegasus_busgraph_sampler(self, width, seed)
+
+cdef class _pegasus_busgraph_sampler:
+    cdef _pegasus_busgraph parent
+    cdef bundle_cache[pegasus_spec] *bc
+    cdef clique_cache[pegasus_spec] *cc
+    cdef clique_sampler[pegasus_spec] *cs
+    cdef fastrng rng
+    cdef list first
+    def __cinit__(self, _pegasus_busgraph parent, size_t width, seed):
+        cdef uint64_t internal_seed
+        cdef uint64_t mask_bound = parent.topo[0].get_mask_bound()
+        self.parent = parent
+        if seed is None:
+            internal_seed = parent.topo[0].topo.seed
+        else:
+            internal_seed = seed
+        self.rng.seed(internal_seed)
+        parent.topo[0].set_mask_bound(1)
+        parent.topo[0].reset()
+        parent.topo[0].set_mask_bound(mask_bound)
+        self.bc = new bundle_cache[pegasus_spec](parent.topo[0].cells);
+        self.cc = new clique_cache[pegasus_spec](parent.topo[0].cells, self.bc[0], width)
+        self.cs = new clique_sampler[pegasus_spec](self.cc[0])
+        self.first = [self.__next__() for _ in range(10)]
+
+    def f(self):
+        return self.first
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        cdef embedding_t emb
+        self.cs.sample(self.rng, emb)
+        return self.parent.relabel(dict(enumerate(emb)))
+
+    def __dealloc__(self):
+        del self.cs
+        del self.cc
+        del self.bc
+
 cdef class _chimera_busgraph:
     """Class for managing a single Chimera graph, and dispatches various
     structure-aware C++ embedding functions on it.

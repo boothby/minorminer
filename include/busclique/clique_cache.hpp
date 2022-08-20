@@ -51,10 +51,12 @@ class zerocache {
 
 
 template<typename topo_spec> class clique_iterator;
+template<typename topo_spec> class clique_sampler;
 
 template<typename topo_spec>
 class clique_cache {
     friend class clique_iterator<topo_spec>;
+    friend class clique_sampler<topo_spec>;
   public:
     //prevent double-frees by forbidding moving & copying
     clique_cache(const clique_cache&) = delete; 
@@ -87,14 +89,20 @@ class clique_cache {
             size += memsize(i) + 1;
         return size;
     }
-    static constexpr bool nocheck(size_y,size_x,size_y,size_y,size_x,size_x) {return true;}
-
   public:
+    static constexpr bool nocheck(size_y,size_x,size_y,size_y,size_x,size_x) {return true;}
+    static void noextra(size_t,size_y,size_x,size_y,size_x,size_t,corner) {}
+
+
     clique_cache(const cell_cache<topo_spec> &c, const bundle_cache<topo_spec> &b, size_t w) :
-        clique_cache(c, b, w, nocheck) {}
+        clique_cache(c, b, w, nocheck, noextra) {}
 
     template<typename C>
-    clique_cache(const cell_cache<topo_spec> &c, const bundle_cache<topo_spec> &b, size_t w, C &check) : 
+    clique_cache(const cell_cache<topo_spec> &c, const bundle_cache<topo_spec> &b, size_t w, C &check) :
+        clique_cache(c, b, w, check, noextra) {}
+
+    template<typename C, typename E>
+    clique_cache(const cell_cache<topo_spec> &c, const bundle_cache<topo_spec> &b, size_t w, C &check, E &extramax) : 
             cells(c),
             bundles(b),
             width(w),
@@ -104,7 +112,7 @@ class clique_cache {
         mem[0] = width;
         for(size_t i = 1; i < width; i++)
             mem[i] = mem[i-1] + memsize(i-1);
-        compute_cache(check);
+        compute_cache(check, extramax);
     }
 
     ~clique_cache() {
@@ -134,48 +142,48 @@ class clique_cache {
     }
   private:
     
-    template<typename C>
-    void compute_cache(C &check) {
+    template<typename C, typename E>
+    void compute_cache(C &check, E &extramax) {
         {
             size_y h = 1;
             size_x w = width;
             auto zero = zerocache();
-            extend_cache(zero, h, w, check, corner::SW, corner::SE);
+            extend_cache(zero, h, w, check, extramax, corner::SW, corner::SE);
         }
         for(size_t i = 1; i < width-1; i++) {
             size_y h = i+1;
             size_x w = width-i;
             maxcache prev = get(coordinate_index(h-2_y));
-            extend_cache(prev, h, w, check, corner::NE, corner::NW, corner::SW, corner::SE);
+            extend_cache(prev, h, w, check, extramax, corner::NE, corner::NW, corner::SW, corner::SE);
         }
         {
             size_y h = width;
             size_x w = 1;
             maxcache prev = get(coordinate_index(h-2_y));
-            extend_cache(prev, h, w, check, corner::NE, corner::SE);
+            extend_cache(prev, h, w, check, extramax, corner::NE, corner::SE);
         }
     }
 
-    template<typename T, typename C, typename ... Corners>
-    inline void extend_cache(const T &prev, size_y h, size_x w, C &check, Corners ... corners) {
+    template<typename T, typename C, typename E, typename ... Corners>
+    inline void extend_cache(const T &prev, size_y h, size_x w, C &check, E &extramax, Corners ... corners) {
         maxcache next = get(coordinate_index(h-1_y));
         for(size_y y = 0; y <= cells.topo.dim_y-h; y++)
             for(size_x x = 0; x <= cells.topo.dim_x-w; x++)
-                extend_cache(prev, next, y, y+h-1_y, x, x+w-1_x, check, corners...);
+                extend_cache(prev, next, y, y+h-1_y, x, x+w-1_x, check, extramax, corners...);
     }
 
-    template<typename T, typename C, typename ... Corners>
+    template<typename T, typename C, typename E, typename ... Corners>
     inline void extend_cache(const T &prev, maxcache &next,
                        size_y y0, size_y y1, size_x x0, size_x x1,
-                       C &check, corner c, Corners ... corners) {
-        extend_cache(prev, next, y0, y1, x0, x1, check, c);
-        extend_cache(prev, next, y0, y1, x0, x1, check, corners...);
+                       C &check, E &extramax, corner c, Corners ... corners) {
+        extend_cache(prev, next, y0, y1, x0, x1, check, extramax, c);
+        extend_cache(prev, next, y0, y1, x0, x1, check, extramax, corners...);
     }
 
-    template<typename T, typename C>
+    template<typename T, typename C, typename E>
     inline void extend_cache(const T &prev, maxcache &next,
                        size_y y0, size_y y1, size_x x0, size_x x1,
-                       C &check, corner c) {
+                       C &check, E &extramax, corner c) {
         size_y next_y, prev_y, yc; next_y = prev_y = yc = y0;
         size_x next_x, prev_x, xc; next_x = prev_x = xc = x0;
         corner skip_c;
@@ -191,6 +199,7 @@ class clique_cache {
             score += bundles.score(yc,xc,y0,y1,x0,x1);
         else
             c = skip_c;
+        extramax(/*i*/ coordinate_index(y1-y0), next_y, next_x, prev_y, prev_x, score, c);
         next.setmax(next_y, next_x, score, c);
     }
 
