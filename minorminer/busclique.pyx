@@ -1030,7 +1030,7 @@ cdef class _pegasus_busgraph:
         del mci
         return n
 
-    def random_max_cliques(self, size_t width, size_t max_chainlength, seed=None):
+    def random_max_cliques(self, size_t width, size_t max_chainlength = 0, seed=None):
         return _pegasus_busgraph_sampler(self, width, max_chainlength, seed)
 
 cdef class _pegasus_busgraph_sampler:
