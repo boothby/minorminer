@@ -31,6 +31,13 @@ class bundle_cache {
     bundle_cache(bundle_cache &&) = delete;
 
   public:
+    class bundle_mask {
+        friend class bundle_cache<topo_spec>;
+        uint8_t k0, k1;
+        bundle_mask(uint8_t k0, uint8_t k1) : k0(k0), k1(k1) {}
+    };
+
+
     ~bundle_cache() {
         if (line_mask != nullptr) {
             delete [] line_mask;
@@ -51,6 +58,29 @@ class bundle_cache {
             get_line_score(1, horz(yc), horz(x0), horz(x1))
         );
     }
+
+    bundle_mask get_bundle_mask(size_y yc, size_x xc, size_y y0, size_y y1, size_x x0, size_x x1) {
+        return {
+            get_line_mask(0, vert(xc), vert(y0), vert(y1)),
+            get_line_mask(1, horz(yc), horz(x0), horz(x1))
+        };
+    }
+
+    static
+    void inflate_bundle_mask(topo_spec topo,
+                 size_y yc, size_x xc, size_y y0, size_y y1, size_x x0, size_x x1,
+                 bundle_mask b,
+                 vector<vector<size_t>> &emb) {
+        while (b.k0 && b.k1) {
+            emb.emplace_back(0);
+            vector<size_t> &chain = emb.back();
+            topo.construct_line(0, vert(xc), vert(y0), vert(y1), first_bit[b.k0], chain);
+            topo.construct_line(1, horz(yc), horz(x0), horz(x1), first_bit[b.k1], chain);
+            b.k0 ^= mask_bit[first_bit[b.k0]];
+            b.k1 ^= mask_bit[first_bit[b.k1]];
+        }   
+    }
+                 
 
     void inflate(size_y yc, size_x xc, size_y y0, size_y y1, size_x x0, size_x x1,
                  vector<vector<size_t>> &emb) const {

@@ -901,6 +901,49 @@ cdef class _zephyr_busgraph:
         else:
             return self.topo.topo.fragment_nodes(nodes)
 
+    def random_max_cliques(self, size_t width, seed=None):
+        return _zephyr_busgraph_sampler(self, width, seed)
+
+cdef class _zephyr_busgraph_sampler:
+    cdef _zephyr_busgraph parent
+    cdef bundle_cache[zephyr_spec] *bc
+    cdef clique_cache[zephyr_spec] *cc
+    cdef clique_sampler[zephyr_spec] *cs
+    cdef fastrng rng
+    cdef list first
+    def __cinit__(self, _zephyr_busgraph parent, size_t width, seed):
+        cdef uint64_t internal_seed
+        cdef uint64_t mask_bound = parent.topo[0].get_mask_bound()
+        self.parent = parent
+        if seed is None:
+            internal_seed = parent.topo[0].topo.seed
+        else:
+            internal_seed = seed
+        self.rng.seed(internal_seed)
+        parent.topo[0].set_mask_bound(1)
+        parent.topo[0].reset()
+        parent.topo[0].set_mask_bound(mask_bound)
+        self.bc = new bundle_cache[zephyr_spec](parent.topo[0].cells);
+        self.cc = new clique_cache[zephyr_spec](parent.topo[0].cells, self.bc[0], width)
+        self.cs = new clique_sampler[zephyr_spec](self.cc[0])
+        self.first = [self.__next__() for _ in range(10)]
+
+    def f(self):
+        return self.first
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        cdef embedding_t emb
+        self.cs.sample(self.rng, emb)
+        return self.parent.relabel(dict(enumerate(emb)))
+
+    def __dealloc__(self):
+        del self.cs
+        del self.cc
+        del self.bc
+        
 cdef class _pegasus_busgraph:
     cdef topo_cache[pegasus_spec] *topo
     cdef nodes_t nodes
@@ -1190,6 +1233,49 @@ cdef class _chimera_busgraph:
             return self.topo.fragment_nodes()
         else:
             return self.topo.topo.fragment_nodes(nodes)
+
+    def random_max_cliques(self, size_t width, seed=None):
+        return _chimera_busgraph_sampler(self, width, seed)
+
+cdef class _chimera_busgraph_sampler:
+    cdef _chimera_busgraph parent
+    cdef bundle_cache[chimera_spec] *bc
+    cdef clique_cache[chimera_spec] *cc
+    cdef clique_sampler[chimera_spec] *cs
+    cdef fastrng rng
+    cdef list first
+    def __cinit__(self, _chimera_busgraph parent, size_t width, seed):
+        cdef uint64_t internal_seed
+        cdef uint64_t mask_bound = parent.topo[0].get_mask_bound()
+        self.parent = parent
+        if seed is None:
+            internal_seed = parent.topo[0].topo.seed
+        else:
+            internal_seed = seed
+        self.rng.seed(internal_seed)
+        parent.topo[0].set_mask_bound(1)
+        parent.topo[0].reset()
+        parent.topo[0].set_mask_bound(mask_bound)
+        self.bc = new bundle_cache[chimera_spec](parent.topo[0].cells);
+        self.cc = new clique_cache[chimera_spec](parent.topo[0].cells, self.bc[0], width)
+        self.cs = new clique_sampler[chimera_spec](self.cc[0])
+        self.first = [self.__next__() for _ in range(10)]
+
+    def f(self):
+        return self.first
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        cdef embedding_t emb
+        self.cs.sample(self.rng, emb)
+        return self.parent.relabel(dict(enumerate(emb)))
+
+    def __dealloc__(self):
+        del self.cs
+        del self.cc
+        del self.bc
 
 def _default_quality_function(emb):
     """A function that returns a tuple corresponds to the "quality" of the embedding.

@@ -15,26 +15,16 @@ using std::min;
 
 namespace busclique{
 
-size_t clz(uint64_t x) {
-   if (x == 0) return(64);
-   size_t n = 0;
-   if (x <= 0x00000000FFFFFFFF) {n = n +32; x = x <<32;}
-   if (x <= 0x0000FFFFFFFFFFFF) {n = n +16; x = x <<16;}
-   if (x <= 0x00FFFFFFFFFFFFFF) {n = n + 8; x = x << 8;}
-   if (x <= 0x0FFFFFFFFFFFFFFF) {n = n + 4; x = x << 4;}
-   if (x <= 0x3FFFFFFFFFFFFFFF) {n = n + 2; x = x << 2;}
-   if (x <= 0x7FFFFFFFFFFFFFFF) {n = n + 1;}
-   return n;
-}
 
-
-//! this is an arbitrary-precision unsigned integer class with very very little
-//! functionality.  specifically support three operations: 
+//! This is an arbitrary-precision unsigned integer class with very very little
+//! functionality.  Externally, we support three operations: 
 //!     * accumulation
 //!     * trial subtraction
 //!     * generation of random numbers modulo a bigbadint
 //! this functionality is the minimum necessary to provide uniform sampling over
 //! the optimal cliques within a clique cache.
+//! We use Lemire's "nearly-divisionless" algorithm for random number generation
+//! with a slight twist to completely avoid division in the multiple-limb case!
 class bigbadint {
     friend std::ostream &operator<<(std::ostream &, const bigbadint &);
     typedef uint64_t word;
@@ -45,13 +35,26 @@ class bigbadint {
     static constexpr auto highmask = word(halfmask) << halfbits;
     vector<word> data;
 
-    bool add(word &a, word b) {
+    static size_t clz(uint64_t x) {
+        static_assert(wordbits == 64, "bigbadint needs 64-bit words or a new clz method");
+        if (x == 0) return(64);
+        size_t n = 0;
+        if (x <= 0x00000000FFFFFFFF) {n = n +32; x = x <<32;}
+        if (x <= 0x0000FFFFFFFFFFFF) {n = n +16; x = x <<16;}
+        if (x <= 0x00FFFFFFFFFFFFFF) {n = n + 8; x = x << 8;}
+        if (x <= 0x0FFFFFFFFFFFFFFF) {n = n + 4; x = x << 4;}
+        if (x <= 0x3FFFFFFFFFFFFFFF) {n = n + 2; x = x << 2;}
+        if (x <= 0x7FFFFFFFFFFFFFFF) {n = n + 1;}
+        return n;
+    }
+
+    static bool add(word &a, word b) {
         bool carry = (a+b) < a;
         a += b;
         return carry;        
     }
 
-    bool add(word &a, word b, bool c) {
+    static bool add(word &a, word b, bool c) {
         bool carry = (a+b+c) < a;
         a += b+c;
         return carry;
@@ -103,7 +106,7 @@ class bigbadint {
         for (;i--;) {
             if (data[i] != other.data[i]) {
                 return data[i] < other.data[i];
-}
+            }
         }
         return false;
     }
@@ -129,72 +132,46 @@ class bigbadint {
     }
 
   private:
-    class half_reader {
-        const vector<word> &v;
-        const size_t s;
-      public:
-        half_reader(const vector<word> &v) : v(v), s(2*v.size() - (v.size() && !(v.back()&highmask))) {}
-        size_t size() const { return s; }
-        word operator[](size_t i) const { 
-            if (i&1) return v[i/2] >> halfbits;
-            else     return v[i/2] & halfmask;
-        }
-    };
-    
-    class half_writer {
-        vector<word> &v;
-        size_t s;
-      public:
-        half_writer(vector<word> &v) : v(v), s(2*v.size() - !(v.size() && (v.back()&highmask))) {}
-        size_t size() const { return s; }
-        word get(size_t i) const { 
-            if (i&1) return v[i/2] >> halfbits;
-            else     return v[i/2] & halfmask;
-        }
-        void set(size_t i, half value) {
-            if (i&1) v[i/2] = (v[i/2]&halfmask) | (word(value) << halfbits);
-            else     v[i/2] = (v[i/2]&highmask) | value;
-        }
-    };
-
-  private:
-    void do_mul(const half_reader &left, const half_reader &right, bigbadint &result) const {
-        half_writer prod(result.data);
+    static word mac(word &w, word u, word v, word c) {
+        //maximum: (2^n-1)*(2^n-1) + (2^n-1) = (2^n-1) * 2^n fits in 2 words!
+        word x = (u&halfmask)*(v&halfmask);
+        word y = (u>>halfbits)*(v&halfmask) + (x>>halfbits);
+        word z = (u&halfmask)*(v>>halfbits) + (y&halfmask);
+        w = (z<<halfbits) + (x&halfmask);
+        return (u>>halfbits)*(v>>halfbits) + (y>>halfbits) + (z>>halfbits) + add(w, c);
+    }
+  
+    void do_mul(const vector<word> left, const vector<word> right, vector<word> &prod) const {
         for (size_t i = 0; i < left.size(); i++) {
             word carry = 0;
-            for (size_t j = 0; j < right.size(); j++) {
-                word entry = left[i]*right[j] + prod.get(i+j) + carry;
-                prod.set(i + j, entry & halfmask);
-                carry = entry >> halfbits;
-            }
-            prod.set(i + right.size(), carry & halfmask);
+            for (size_t j = 0; j < right.size(); j++)
+                carry = mac(prod[i+j], left[i], right[i], carry);
+            prod[i + right.size()] = carry;
         }
-        while(result.size() && !result.data.back())
-            result.data.pop_back();
-    }
-
-    void mul(const bigbadint &other, bigbadint &result) const {
-        half_reader left(data);
-        half_reader right(other.data);
-        size_t rsize = left.size() + right.size();
-        result.data.clear();
-        result.data.resize((rsize+1)/2);
-        do_mul(left, right, result);
+        while(prod.size() && !prod.back())
+            prod.pop_back();
     }
 
   public:
+    void mul(const bigbadint &other, bigbadint &result) const {
+        result.data.clear();
+        result.data.resize(size() + other.size());
+        do_mul(data, other.data, result.data);
+    }
+
     bigbadint operator *(const bigbadint &other) const {
-        half_reader left(data);
-        half_reader right(other.data);
-        size_t rsize = left.size() + right.size();
-        bigbadint result(zero_tag{}, 1 + rsize/2);
-        do_mul(left, right, result);
+        bigbadint result(zero_tag{}, size() + other.size());
+        do_mul(data, other.data, result.data);
         return result;
     }
 
+    //! compute pow(2, 64*size()) mod *this to aid the "nearly-divisionless"
+    //! random number algorithm
     bigbadint magic_constant() const {
         if (size() == 1)
             return bigbadint((-data[0])%data[0]);
+            
+
         bigbadint result(zero_tag{}, size());
         auto n = word(1) << (wordbits-clz(data.back())-1);
         result.data.back() = n;
@@ -203,16 +180,18 @@ class bigbadint {
             result += result;
             result.trysubtract(*this);
         }
+        
+        //there you have it, a remainder computed in linear time
         return result;
     }
 
   private:
-    bool sub(word &a, bool c) {
+    static bool sub(word &a, bool c) {
         bool borrow = (a < c);
         a -= c;
         return borrow;
     }
-    bool sub(word &a, word b, bool c) {
+    static bool sub(word &a, word b, bool c) {
         bool borrow = sub(a, c);
         borrow |= a < b;
         a -= b;
@@ -239,6 +218,8 @@ class bigbadint {
 
     template<typename R>
     bigbadint random_mod(R &rng, const bigbadint &magic_const) const {
+        //and here's the good stuff!
+    
         if (!size())
             return bigbadint(0);
         bigbadint x(rng, size());
@@ -282,7 +263,6 @@ class clique_sampler {
         vector<std::tuple<size_y, size_x, corner>> prev;
     };
     vector<vector<vector<optima>>> mem;
-
 
     const clique_cache<topo_spec> &cliques;
   public:
@@ -333,6 +313,7 @@ class clique_sampler {
         empty = total.size() == 0;
         if (!empty)
             magic_constant = total.magic_constant();
+        std::cout << total << std::endl;
     }
 
 
