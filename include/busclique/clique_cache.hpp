@@ -69,13 +69,21 @@ class clique_cache {
     size_t *mem;
 
     size_t memrows(size_t i) const {
-        if (i < width) return coordinate_index(cells.topo.dim_y)-i;
+        return memrows(cells.topo, width, i);
+    }
+
+    size_t memcols(size_t i) const {
+        return memcols(cells.topo, width, i);
+    }
+
+    static size_t memrows(topo_spec topo, size_t width, size_t i) {
+        if (i < width) return coordinate_index(topo.dim_y)-i;
         else if (i == width) return 1;
         else throw "memrows";
     }
-    size_t memcols(size_t i) const {
-        if (i + 1 < width) return coordinate_index(cells.topo.dim_x)-width+i+2;
-        else if (i + 1 == width) return coordinate_index(cells.topo.dim_x);
+    static size_t memcols(topo_spec topo, size_t width, size_t i) {
+        if (i + 1 < width) return coordinate_index(topo.dim_x)-width+i+2;
+        else if (i + 1 == width) return coordinate_index(topo.dim_x);
         else throw "memcols";
     }
 
@@ -91,7 +99,7 @@ class clique_cache {
     }
   public:
     static constexpr bool nocheck(size_y,size_x,size_y,size_y,size_x,size_x) {return true;}
-    static void noextra(size_t,size_y,size_x,size_y,size_x,size_t,corner) {}
+    static void noextra(size_t,size_y,size_x,size_y,size_x,size_t,corner,bundle_mask) {}
 
 
     clique_cache(const cell_cache<topo_spec> &c, const bundle_cache<topo_spec> &b, size_t w) :
@@ -199,24 +207,36 @@ class clique_cache {
             score += bundles.score(yc,xc,y0,y1,x0,x1);
         else
             c = skip_c;
-        extramax(/*i*/ coordinate_index(y1-y0), next_y, next_x, prev_y, prev_x, score, c);
+        extramax(/*i*/coordinate_index(y1-y0), next_y, next_x, prev_y, prev_x, score, 
+                 c, bundles.get_bundle_mask(yc,xc,y0,y1,x0,x1));
         next.setmax(next_y, next_x, score, c);
+    }
+
+    static void get_ell_loc(size_y &y, size_x &x, size_y h, size_x w, corner c,
+                       size_y &yc, size_y &y0, size_y &y1, 
+                       size_x &xc, size_x &x0, size_x &x1) {
+        y0 = y; y1 = y+h;
+        switch(c) {
+            case corner::NWskip:
+            case corner::NW: x--; yc = y;   xc = x;   y++; break;
+            case corner::SWskip:
+            case corner::SW: x--; yc = y+h; xc = x;        break;
+            case corner::NEskip:
+            case corner::NE:      yc = y;   xc = x+w; y++; break;
+            case corner::SEskip:
+            case corner::SE:      yc = y+h; xc = x+w;      break;
+            default: throw std::exception();
+        }
+        x0 = x; x1 = x+w;
     }
 
     corner inflate_first_ell(vector<vector<size_t>> &emb,
                              size_y &y, size_x &x, size_y h, size_x w, corner c) const {
         corner c0 = static_cast<corner>(1<< first_bit[c]);
-        switch(c0) {
-            case corner::NW: x--; bundles.inflate(y,  x,  y,y+h,x,x+w, emb); y++; break;
-            case corner::SW: x--; bundles.inflate(y+h,x,  y,y+h,x,x+w, emb);      break;
-            case corner::NE:      bundles.inflate(y,  x+w,y,y+h,x,x+w, emb); y++; break;
-            case corner::SE:      bundles.inflate(y+h,x+w,y,y+h,x,x+w, emb);      break;
-            case corner::NWskip: x--; y++; break;
-            case corner::SWskip: x--;      break;
-            case corner::NEskip:      y++; break;
-            case corner::SEskip:           break;
-            default: throw std::exception();
-        }
+        size_y yc, y0, y1;
+        size_x xc, x0, x1;
+        get_ell_loc(y, x, h, w, c, yc, y0, y1, xc, x0, x1);
+        bundles.inflate(yc, xc, y0, y1, x0, x1, emb);
         return c0;
     }
 

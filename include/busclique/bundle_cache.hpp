@@ -18,9 +18,20 @@
 
 namespace busclique {
 
+template<typename topo_spec> class bundle_cache;
+
+class bundle_mask {
+    template<typename topo_spec> friend class bundle_cache;
+    uint8_t k0, k1;
+    bundle_mask(uint8_t k0, uint8_t k1) : k0(k0), k1(k1) {}
+  public:
+    size_t score() { return min(popcount[k0], popcount[k1]); }
+};
+
+
 template<typename topo_spec>
 class bundle_cache {
-//  public:
+  public:
     const cell_cache<topo_spec> &cells;
 //  private:
     const size_t linestride[2];
@@ -31,13 +42,6 @@ class bundle_cache {
     bundle_cache(bundle_cache &&) = delete;
 
   public:
-    class bundle_mask {
-        friend class bundle_cache<topo_spec>;
-        uint8_t k0, k1;
-        bundle_mask(uint8_t k0, uint8_t k1) : k0(k0), k1(k1) {}
-    };
-
-
     ~bundle_cache() {
         if (line_mask != nullptr) {
             delete [] line_mask;
@@ -59,7 +63,7 @@ class bundle_cache {
         );
     }
 
-    bundle_mask get_bundle_mask(size_y yc, size_x xc, size_y y0, size_y y1, size_x x0, size_x x1) {
+    bundle_mask get_bundle_mask(size_y yc, size_x xc, size_y y0, size_y y1, size_x x0, size_x x1) const {
         return {
             get_line_mask(0, vert(xc), vert(y0), vert(y1)),
             get_line_mask(1, horz(yc), horz(x0), horz(x1))

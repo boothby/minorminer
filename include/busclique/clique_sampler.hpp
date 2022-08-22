@@ -210,11 +210,6 @@ class bigbadint {
             data.pop_back();
         return true;
     }
-    
-    
-    
-    
-
 
     template<typename R>
     bigbadint random_mod(R &rng, const bigbadint &magic_const) const {
@@ -260,41 +255,35 @@ class clique_sampler {
         bigbadint sum;
         corner c;
         size_t score;
-        vector<std::tuple<size_y, size_x, corner>> prev;
+        vector<std::tuple<size_y, size_x, corner, bundle_mask>> prev;
     };
-    vector<vector<vector<optima>>> mem;
 
-    const clique_cache<topo_spec> &cliques;
+    topo_spec topo;
+  public:
+    const size_t width;
+  private:
+    vector<vector<vector<optima>>> mem;
   public:
     const size_t yield;
-  private:
-    bigbadint total;
+    const bigbadint total;
     bool empty;
+  private:
     bigbadint magic_constant;
     
-  public:
-    clique_sampler(const clique_cache<topo_spec> &cliques) : 
-        mem([&cliques](){
-            vector<vector<vector<optima>>> m;
-            for (size_t i = 0; i < cliques.width; i++) {
-                vector<optima> row(cliques.memcols(i));
-                vector<vector<optima>> block(cliques.memrows(i), row);
-                m.push_back(block);
-            }
-            return m;
-        }()),
-        cliques(cliques),
-        yield([&cliques](){
-            const auto &mc = cliques.get(cliques.width-1);
-            size_t Y = 0;
-            for (size_y y = 0; y < mc.rows; y++)
-                for (size_x x = 0; x < mc.cols; x++)
-                    Y = max(Y, mc.score(y, x));
-            return Y;
-        }())
-    {
-        auto spy = [this](size_t i, size_y y, size_x x, size_y py, size_x px, size_t score, corner c) {
-            auto &op = mem[i][coordinate_index(y)][coordinate_index(x)];
+    vector<vector<vector<optima>>> init_mem(
+        const bundle_cache<topo_spec> &bundles,
+        size_t length
+    ) {
+        vector<vector<vector<optima>>> m;
+        for (size_t i = 0; i < width; i++) {
+            vector<optima> row(clique_cache<topo_spec>::memcols(topo, width, i));
+            vector<vector<optima>> block(clique_cache<topo_spec>::memrows(topo, width, i), row);
+            m.push_back(block);
+        }
+        
+        auto spy = [&m](size_t i, size_y y, size_x x, size_y py, size_x px, 
+                          size_t score, corner c, bundle_mask b) {
+            auto &op = m[i][coordinate_index(y)][coordinate_index(x)];
             if (op.score > score)
                 return;
             if (op.score < score) {
@@ -302,54 +291,97 @@ class clique_sampler {
                 op.prev.clear();
                 op.sum.clear();
             }
-            op.prev.emplace_back(py, px, c);
-            op.sum += (i==0)?bigbadint(1):mem[i-1][coordinate_index(py)][coordinate_index(px)].sum;
+            op.prev.emplace_back(py, px, c, b);
+            op.sum += (i==0)?bigbadint(1):m[i-1][coordinate_index(py)][coordinate_index(px)].sum;
         };
-        clique_cache<topo_spec> tmp(cliques.cells, cliques.bundles, cliques.width, clique_cache<topo_spec>::nocheck, spy);
+        if (length) {
+            auto check_length = [&bundles, length](size_y yc, size_x xc,
+                                                   size_y y0, size_y y1,
+                                                   size_x x0, size_x x1){
+                return bundles.length(yc,xc,y0,y1,x0,x1) <= length;
+            };
+            clique_cache<topo_spec> tmp(bundles.cells, bundles, width, check_length, spy);
+        } else {
+            clique_cache<topo_spec> tmp(bundles.cells, bundles, width, clique_cache<topo_spec>::nocheck, spy);
+        }
+        return m;
+    }
+    size_t init_yield() {
+        size_t y = 0;
+        for (auto &row: mem.back())
+            for (auto &entry: row)
+                y = max(entry.score, y);
+        return y;
+    }
+    
+    bigbadint init_total() {
+        bigbadint t(0);
         for (auto &row: mem.back())
             for (auto &entry: row)
                 if (entry.score == yield)
-                    total += entry.sum;
-        empty = total.size() == 0;
-        if (!empty)
-            magic_constant = total.magic_constant();
-        std::cout << total << std::endl;
+                    t += entry.sum;
+        return t;
+    }
+    
+  public:
+    clique_sampler(const bundle_cache<pegasus_spec> &bundles, size_t width, size_t length = 0) : 
+        topo(bundles.cells.topo),
+        width(width),
+        mem(init_mem(bundles, length)),
+        yield(init_yield()),
+        total(init_total()),
+        empty(total.size() == 0),
+        magic_constant(empty?bigbadint(0):total.magic_constant()) {
+        std::cout << total << std::endl;    
     }
 
 
+    clique_sampler(const bundle_cache<topo_spec> &bundles, size_t width) : 
+        topo(bundles.cells.topo),
+        width(width),
+        mem(init_mem(bundles, 0)),
+        yield(init_yield()),
+        total(init_total()),
+        empty(total.size() == 0),
+        magic_constant(empty?bigbadint(0):total.magic_constant()) {}
+
     template<typename R>
-    void sample(R &rng, vector<vector<size_t>> &emb) {
+    bool sample(R &rng, vector<vector<size_t>> &emb) {
         emb.clear();
         if (empty)
-            return;
+            return false;
         bigbadint index = total.random_mod(rng, magic_constant);
         size_y y = 0;
         size_x x = 0;
-        {
-            const auto &mc = cliques.get(cliques.width-1);
-            for (auto &row: mem.back()) {
-                x = 0;
-                for (auto &entry: row) {
-                    if (mc.score(y, x) == yield && !index.trysubtract(entry.sum))
-                        goto stop;
-                    x++;
-                }
-                y++;
+        for (auto &row: mem.back()) {
+            x = 0;
+            for (auto &entry: row) {
+                if (entry.score == yield && !index.trysubtract(entry.sum))
+                    goto stop;
+                x++;
             }
+            y++;
         }
         stop:
-        for (size_t i = cliques.width; i--;) {
+        for (size_t i = width; i--;) {
             auto &op = mem[i][y][x];
             for (auto pyxc: op.prev) {
                 size_t py = std::get<0>(pyxc);
                 size_t px = std::get<1>(pyxc);
-                corner c  = std::get<2>(pyxc);
                 if (!index.trysubtract(i?mem[i-1][py][px].sum:bigbadint(1))) {
-                    cliques.inflate_first_ell(emb, y, x, i, cliques.width-1-i, c);
+                    corner c  = std::get<2>(pyxc);
+                    bundle_mask b  = std::get<3>(pyxc);
+                    size_y yc, y0, y1;
+                    size_x xc, x0, x1;
+                    clique_cache<topo_spec>::get_ell_loc(y, x, i, width-i-1, c, yc, y0, y1, xc, x0, x1);
+                    if (!(c&corner::skipmask)) {
+                        bundle_cache<topo_spec>::inflate_bundle_mask(topo, yc, xc, y0, y1, x0, x1, b, emb);
+                    }
                     break;
                 }
             }
         }
+        return true;
     }
 };
 }
