@@ -1030,14 +1030,17 @@ cdef class _pegasus_busgraph:
         del mci
         return n
 
-    def random_max_cliques(self, size_t width, size_t max_chainlength = 0, seed=None):
-        return _pegasus_busgraph_sampler(self, width, max_chainlength, seed)
+    def random_max_cliques(self, size_t max_chainlength = 0, seed=None):
+        return _pegasus_busgraph_sampler(self, max_chainlength, seed)
 
 cdef class _pegasus_busgraph_sampler:
-    cdef clique_sampler[pegasus_spec] *cs
+    cdef clique_sampler_collection[pegasus_spec] csc
     cdef fastrng rng
     cdef _pegasus_busgraph parent
-    def __cinit__(self, _pegasus_busgraph parent, size_t width, size_t max_chainlength, seed):
+    def __cinit__(self, _pegasus_busgraph parent, size_t max_chainlength, seed):
+        cdef size_t w
+        cdef size_t w0 = 2
+        cdef size_t w1 = min(coordinate_index(parent.topo[0].topo.dim_x), coordinate_index(parent.topo[0].topo.dim_y))
         cdef uint64_t internal_seed
         cdef uint64_t mask_bound = parent.topo[0].get_mask_bound()
         cdef bundle_cache[pegasus_spec] *bc
@@ -1051,7 +1054,11 @@ cdef class _pegasus_busgraph_sampler:
         parent.topo[0].reset()
         parent.topo[0].set_mask_bound(mask_bound)
         bc = new bundle_cache[pegasus_spec](parent.topo[0].cells);
-        self.cs = new clique_sampler[pegasus_spec](bc[0], width, max_chainlength)
+        if max_chainlength:
+            w0 = max((max(max_chainlength, 3ULL)-3) * 6, w0)
+            w1 = min(w1, (max_chainlength-1) * 6)
+        for w in range(w0, w1+1):
+            self.csc.emplace(bc[0], w, max_chainlength)
         del bc
 
     def __iter__(self):
@@ -1059,12 +1066,10 @@ cdef class _pegasus_busgraph_sampler:
 
     def __next__(self):
         cdef embedding_t emb
-        if not self.cs.sample(self.rng, emb):
+        if not self.csc.sample(self.rng, emb):
             raise StopIteration
         return self.parent.relabel(dict(enumerate(emb)))
 
-    def __dealloc__(self):
-        del self.cs
 
 cdef class _chimera_busgraph:
     """Class for managing a single Chimera graph, and dispatches various

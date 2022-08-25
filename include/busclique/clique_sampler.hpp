@@ -27,12 +27,15 @@ namespace busclique{
 //! with a slight twist to completely avoid division in the multiple-limb case!
 class bigbadint {
     friend std::ostream &operator<<(std::ostream &, const bigbadint &);
+    friend class uniform_bigint_distribution;
+  public:
     typedef uint64_t word;
     typedef uint32_t half;
     static constexpr auto halfbits = 8*sizeof(half);
     static constexpr auto wordbits = 8*sizeof(word);
     static constexpr auto halfmask = ~half(0);
     static constexpr auto highmask = word(halfmask) << halfbits;
+  private:
     vector<word> data;
 
     static size_t clz(uint64_t x) {
@@ -47,7 +50,11 @@ class bigbadint {
         if (x <= 0x7FFFFFFFFFFFFFFF) {n = n + 1;}
         return n;
     }
+    
+  public:
+    size_t clz() { return clz(size()?data.back():0); }
 
+  private:
     static bool add(word &a, word b) {
         bool carry = (a+b) < a;
         a += b;
@@ -140,7 +147,7 @@ class bigbadint {
         w = (z<<halfbits) + (x&halfmask);
         return (u>>halfbits)*(v>>halfbits) + (y>>halfbits) + (z>>halfbits) + add(w, c);
     }
-  
+
     void do_mul(const vector<word> left, const vector<word> right, vector<word> &prod) const {
         for (size_t i = 0; i < left.size(); i++) {
             word carry = 0;
@@ -162,26 +169,6 @@ class bigbadint {
     bigbadint operator *(const bigbadint &other) const {
         bigbadint result(zero_tag{}, size() + other.size());
         do_mul(data, other.data, result.data);
-        return result;
-    }
-
-    //! compute pow(2, 64*size()) mod *this to aid the "nearly-divisionless"
-    //! random number algorithm
-    bigbadint magic_constant() const {
-        if (size() == 1)
-            return bigbadint((-data[0])%data[0]);
-            
-
-        bigbadint result(zero_tag{}, size());
-        auto n = word(1) << (wordbits-clz(data.back())-1);
-        result.data.back() = n;
-        while (n > 0) {
-            n += n;
-            result += result;
-            result.trysubtract(*this);
-        }
-        
-        //there you have it, a remainder computed in linear time
         return result;
     }
 
@@ -212,25 +199,13 @@ class bigbadint {
     }
 
     template<typename R>
-    bigbadint random_mod(R &rng, const bigbadint &magic_const) const {
-        //and here's the good stuff!
-    
+    bigbadint random_mod(R &rng) const {
         if (!size())
             return bigbadint(0);
-        bigbadint x(rng, size());
+        //keep the sampling bias under 2^63
+        bigbadint x(rng, size()+1);
         bigbadint m = operator*(x);
-        bool loop = m.size() < size() || m.less_bound(*this, size());
-        if (loop)
-            while (m.size() < magic_const.size() || m.less_bound(magic_const, size())) {
-                x.data.clear();
-                for (size_t i = size(); i--;)
-                    x.data.push_back(rng());
-                while(!x.data.back()) x.data.back() = rng();
-                mul(x, m);
-            }
-        for (size_t hi = m.size(), lo = m.size()-size(); hi--, lo--;)
-            m.data[lo] = m.data[hi];
-        m.data.resize(m.size()-size());
+        m.data.erase(m.data.begin(), m.data.begin()+size()+1);
         return m;
     }
 };
@@ -258,7 +233,7 @@ class clique_sampler {
         vector<std::tuple<size_y, size_x, corner, bundle_mask>> prev;
     };
 
-    topo_spec topo;
+    const topo_spec &topo;
   public:
     const size_t width;
   private:
@@ -268,7 +243,6 @@ class clique_sampler {
     const bigbadint total;
     bool empty;
   private:
-    bigbadint magic_constant;
     
     vector<vector<vector<optima>>> init_mem(
         const bundle_cache<topo_spec> &bundles,
@@ -330,10 +304,7 @@ class clique_sampler {
         mem(init_mem(bundles, length)),
         yield(init_yield()),
         total(init_total()),
-        empty(total.size() == 0),
-        magic_constant(empty?bigbadint(0):total.magic_constant()) {
-        std::cout << total << std::endl;    
-    }
+        empty(total.size() == 0) {}
 
 
     clique_sampler(const bundle_cache<topo_spec> &bundles, size_t width) : 
@@ -342,15 +313,10 @@ class clique_sampler {
         mem(init_mem(bundles, 0)),
         yield(init_yield()),
         total(init_total()),
-        empty(total.size() == 0),
-        magic_constant(empty?bigbadint(0):total.magic_constant()) {}
+        empty(total.size() == 0) {}
 
-    template<typename R>
-    bool sample(R &rng, vector<vector<size_t>> &emb) {
+    bool sample(bigbadint &index, vector<vector<size_t>> &emb) const {
         emb.clear();
-        if (empty)
-            return false;
-        bigbadint index = total.random_mod(rng, magic_constant);
         size_y y = 0;
         size_x x = 0;
         for (auto &row: mem.back()) {
@@ -374,14 +340,103 @@ class clique_sampler {
                     size_y yc, y0, y1;
                     size_x xc, x0, x1;
                     clique_cache<topo_spec>::get_ell_loc(y, x, i, width-i-1, c, yc, y0, y1, xc, x0, x1);
-                    if (!(c&corner::skipmask)) {
+                    if (!(c&corner::skipmask))
                         bundle_cache<topo_spec>::inflate_bundle_mask(topo, yc, xc, y0, y1, x0, x1, b, emb);
-                    }
                     break;
                 }
             }
         }
         return true;
     }
+
+    template<typename R>
+    bool sample(R &rng, vector<vector<size_t>> &emb) const {
+        if (empty)
+            return false;
+        bigbadint index = total.random_mod(rng);
+        return sample(index, emb);
+    }
 };
+
+template<typename T>
+class const_list {
+    typedef struct entry {
+        const T item;
+        entry *next;
+        template<typename ...Args>
+        entry(entry *next, Args &&...args) : item(std::forward<Args>(args)...), next(next) {}
+    } entry;
+    class iterator {
+        entry *cur;
+      public:
+        iterator(entry *cur) : cur(cur) {}
+        iterator operator++() { cur = cur->next; return *this; }
+        bool operator!=(const iterator &other) { return cur != other.cur; }
+        const T &operator*() { return cur->item; }
+    };
+    entry *head;
+  public:
+    const_list() : head(nullptr) {}
+    ~const_list() {
+        if (head != nullptr) {
+            decapitate();
+            pop();
+        }
+    }
+    template<typename ...Args>
+    void emplace(Args &...args) {
+        head = new entry(head, args...);
+    }
+    void decapitate() {
+        entry *cur = head->next;
+        while (cur != nullptr) {
+            entry *next = cur->next;
+            delete cur;
+            cur = next;
+        }
+        head->next = nullptr;
+    }
+    void pop() {
+        entry *next = head->next;
+        delete head;
+        head = next;
+    }
+    const T &back() { return head->item; }
+    iterator begin() { return iterator(head); }
+    iterator end() { return iterator(nullptr); }
+};
+
+template<typename topo_spec>
+class clique_sampler_collection {
+    const_list<clique_sampler<topo_spec>> samplers;
+    bigbadint total;
+    size_t yield;
+  public:
+    clique_sampler_collection() : samplers(), total(0), yield(0) {}
+  
+    template<typename ...Args>
+    void emplace(Args &&...args) {
+        samplers.emplace(std::forward<Args>(args)...);
+        auto &back = samplers.back();
+        if (back.yield < yield)
+            samplers.pop();
+        else if (back.yield > yield) {
+            samplers.decapitate();
+            yield = back.yield;
+            total = back.total;
+        } else {
+            total += back.total;
+        }
+    }
+    template<typename R>
+    bool sample(R &rng, vector<vector<size_t>> &emb) {
+        bigbadint index = total.random_mod(rng);
+        for (auto &sampler: samplers) {
+            if (!index.trysubtract(sampler.total))
+                return sampler.sample(index, emb);
+        }
+        return false;
+    }
+};
+
 }
