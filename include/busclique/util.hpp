@@ -50,6 +50,10 @@ enum corner : size_t {
     none = 0
 };
 
+bool is_skip(corner c) { return c&corner::skipmask; }
+corner to_skip(corner c) { return static_cast<corner>(c << 4); }
+bool discount_skip(corner a, corner b) { return is_skip(b) && (b < a); }
+
 inline size_t binom(size_t x) { return (x*x+x)/2; }
 
 const uint8_t popcount[256] = {0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 

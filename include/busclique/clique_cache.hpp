@@ -194,19 +194,19 @@ class clique_cache {
                        C &check, E &extramax, corner c) {
         size_y next_y, prev_y, yc; next_y = prev_y = yc = y0;
         size_x next_x, prev_x, xc; next_x = prev_x = xc = x0;
-        corner skip_c;
         switch(c) {
-            case corner::NW: next_x = x0+1u; prev_y = y0+1u; skip_c = corner::NWskip; break;
-            case corner::SW: next_x = x0+1u; yc = y1;        skip_c = corner::SWskip; break;
-            case corner::NE: xc = x1;        prev_y = y0+1u; skip_c = corner::NEskip; break;
-            case corner::SE: xc = x1;        yc = y1;        skip_c = corner::SEskip; break;
+            case corner::NW: next_x = x0+1u; prev_y = y0+1u; break;
+            case corner::SW: next_x = x0+1u; yc = y1;        break;
+            case corner::NE: xc = x1;        prev_y = y0+1u; break;
+            case corner::SE: xc = x1;        yc = y1;        break;
             default: throw std::exception();
         }
         size_t score = prev.score(prev_y, prev_x);
-        if(check(yc,xc,y0,y1,x0,x1))
-            score += bundles.score(yc,xc,y0,y1,x0,x1);
+        size_t b = bundles.score(yc,xc,y0,y1,x0,x1);
+        if(b && check(yc,xc,y0,y1,x0,x1))
+            score += b;
         else
-            c = skip_c;
+            c = to_skip(c);
         extramax(/*i*/coordinate_index(y1-y0), next_y, next_x, prev_y, prev_x, score, 
                  c, bundles.get_bundle_mask(yc,xc,y0,y1,x0,x1));
         next.setmax(next_y, next_x, score, c);

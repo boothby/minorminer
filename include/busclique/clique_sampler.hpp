@@ -25,34 +25,17 @@ namespace busclique{
 //! the optimal cliques within a clique cache.
 //! We use Lemire's "nearly-divisionless" algorithm for random number generation
 //! with a slight twist to completely avoid division in the multiple-limb case!
-class bigbadint {
+class bigbadint : public vector<uint64_t> {
+    using super = vector<uint64_t>;
     friend std::ostream &operator<<(std::ostream &, const bigbadint &);
     friend class uniform_bigint_distribution;
   public:
     typedef uint64_t word;
     typedef uint32_t half;
-    static constexpr auto halfbits = 8*sizeof(half);
     static constexpr auto wordbits = 8*sizeof(word);
+    static constexpr auto halfbits = wordbits / 2;
     static constexpr auto halfmask = ~half(0);
     static constexpr auto highmask = word(halfmask) << halfbits;
-  private:
-    vector<word> data;
-
-    static size_t clz(uint64_t x) {
-        static_assert(wordbits == 64, "bigbadint needs 64-bit words or a new clz method");
-        if (x == 0) return(64);
-        size_t n = 0;
-        if (x <= 0x00000000FFFFFFFF) {n = n +32; x = x <<32;}
-        if (x <= 0x0000FFFFFFFFFFFF) {n = n +16; x = x <<16;}
-        if (x <= 0x00FFFFFFFFFFFFFF) {n = n + 8; x = x << 8;}
-        if (x <= 0x0FFFFFFFFFFFFFFF) {n = n + 4; x = x << 4;}
-        if (x <= 0x3FFFFFFFFFFFFFFF) {n = n + 2; x = x << 2;}
-        if (x <= 0x7FFFFFFFFFFFFFFF) {n = n + 1;}
-        return n;
-    }
-    
-  public:
-    size_t clz() { return clz(size()?data.back():0); }
 
   private:
     static bool add(word &a, word b) {
@@ -69,86 +52,75 @@ class bigbadint {
 
   public:
     class zero_tag {};
-    bigbadint(zero_tag, size_t s) : data(s, 0) {}
+
+    bigbadint(zero_tag, size_t s) : super(s, 0) {}
     bigbadint() {}
-    bigbadint(word x) : data((x>0), x) {}
-    bigbadint(word x, size_t reserve) {
-        data.reserve(reserve);
-        if (x) data.push_back(x);
+    bigbadint(word x) : super((x>0), x) {}
+    bigbadint(word x, size_t r) {
+        super::reserve(r);
+        if (x) super::push_back(x);
     }
-    bigbadint(bigbadint x, size_t reserve) {
-        data.reserve(reserve);
-        std::copy(x.data.begin(), x.data.end(), std::back_inserter(data));
+    bigbadint(bigbadint x, size_t r) {
+        reserve(r);
+        std::copy(x.super::begin(), x.super::end(), std::back_inserter(*this));
     }
+    bigbadint(const vector<uint64_t> x) : super(x) {}
     
     template<typename R>
     bigbadint(R &rng, size_t size) {
-        data.reserve(size);
+        reserve(size);
         for(size_t i=size; i--;) {
-            data.push_back(rng());
+            super::push_back(rng());
         }
-        while (size && !data.back()) {
-            data.back() = rng();
+        while (size && !super::back()) {
+            super::back() = rng();
         }
     }   
 
     bigbadint &operator+=(bigbadint other) {
+        super &data(*this);
         bool carry = 0;
-        size_t size = min(data.size(), other.size());
+        size_t size = min(super::size(), other.size());
         for (size_t i = 0; i < size; i++)
-            carry = add(data[i], other.data[i], carry);
-        for (size_t i = size; i < data.size() && carry; i++)
+            carry = add(data[i], other[i], carry);
+        for (size_t i = size; i < super::size() && carry; i++)
             carry = add(data[i], carry);
         for (size_t i = size; i < other.size(); i++) {
-            data.push_back(other.data[i]);
+            super::push_back(other[i]);
             carry = add(data[i], carry);
         }
         if (carry)
-            data.push_back(carry);
+            super::push_back(carry);
         return *this;
     }
 
   private:
     bool less_bound(const bigbadint &other, size_t i) const {
-        for (;i--;) {
-            if (data[i] != other.data[i]) {
-                return data[i] < other.data[i];
-            }
-        }
+        const super &data(*this);
+        for (;i--;)
+            if (data[i] != other[i])
+                return data[i] < other[i];
         return false;
     }
 
   public:
     bool operator<(const bigbadint &other) const {
-        if (size() != other.size()) {
-            return size() < other.size();
+        if (super::size() != other.size()) {
+            return super::size() < other.size();
         }
         return less_bound(other, size());
     }
 
-    size_t size() const {
-        return data.size();
-    }
-    
-    void clear() {
-        data.clear();
-    }
-
-    void reserve(size_t size) {
-        data.reserve(size);
-    }
-
   private:
     static word mac(word &w, word u, word v, word c) {
-        //maximum: (2^n-1)*(2^n-1) + (2^n-1) = (2^n-1) * 2^n fits in 2 words!
         word x = (u&halfmask)*(v&halfmask);
         word y = (u>>halfbits)*(v&halfmask) + (x>>halfbits);
         word z = (u&halfmask)*(v>>halfbits) + (y&halfmask);
         w = (z<<halfbits) + (x&halfmask);
-        return (u>>halfbits)*(v>>halfbits) + (y>>halfbits) + (z>>halfbits) + add(w, c);
+        return add(w, c) + (u>>halfbits)*(v>>halfbits) + (y>>halfbits) + (z>>halfbits);
     }
 
-    void do_mul(const vector<word> left, const vector<word> right, vector<word> &prod) const {
+    void do_mul(const vector<word> &left, const vector<word> &right, vector<word> &prod) const {
         for (size_t i = 0; i < left.size(); i++) {
             word carry = 0;
             for (size_t j = 0; j < right.size(); j++)
@@ -161,14 +133,14 @@ class bigbadint {
 
   public:
     void mul(const bigbadint &other, bigbadint &result) const {
-        result.data.clear();
-        result.data.resize(size() + other.size());
-        do_mul(data, other.data, result.data);
+        result.clear();
+        result.resize(super::size() + other.size());
+        do_mul(*this, other, result);
     }
 
     bigbadint operator *(const bigbadint &other) const {
-        bigbadint result(zero_tag{}, size() + other.size());
-        do_mul(data, other.data, result.data);
+        bigbadint result(zero_tag{}, super::size() + other.size());
+        do_mul(*this, other, result);
         return result;
     }
 
@@ -187,25 +159,26 @@ class bigbadint {
 
   public:
     bool trysubtract(const bigbadint &x) {
+        super &data(*this);
         if (*this < x) return false;
         bool borrow = 0;
         for (size_t i = 0; i < x.size(); i++)
-            borrow = sub(data[i], x.data[i], borrow);
-        for (size_t i = x.size(); (i < size()) && borrow; i++)
+            borrow = sub(data[i], x[i], borrow);
+        for (size_t i = x.size(); (i < super::size()) && borrow; i++)
             borrow = sub(data[i], borrow);
-        while (data.size() && !data.back())
-            data.pop_back();
+        while (super::size() && !super::back())
+            super::pop_back();
         return true;
     }
 
     template<typename R>
     bigbadint random_mod(R &rng) const {
-        if (!size())
+        if (!super::size())
             return bigbadint(0);
-        //keep the sampling bias under 2^63
-        bigbadint x(rng, size()+1);
+        //keep the sampling bias under 2^-63
+        bigbadint x(rng, super::size()+1);
         bigbadint m = operator*(x);
-        m.data.erase(m.data.begin(), m.data.begin()+size()+1);
+        m.erase(m.begin(), m.begin()+super::size()+1);
         return m;
     }
 };
@@ -214,8 +187,9 @@ std::ostream &operator<<(std::ostream &o, const bigbadint &bbi) {
     auto flags = o.flags();
     auto width = o.width();
     o << std::hex;
+    
     for(size_t i = bbi.size(); i--;) {
-        o << bbi.data[i];
+        o << bbi[i];
         o << std::setw(sizeof(bigbadint::word)*2) << std::setfill('0');
     }
     o.flags(flags);
@@ -254,7 +228,7 @@ class clique_sampler {
             vector<vector<optima>> block(clique_cache<topo_spec>::memrows(topo, width, i), row);
             m.push_back(block);
         }
-        
+
         auto spy = [&m](size_t i, size_y y, size_x x, size_y py, size_x px, 
                           size_t score, corner c, bundle_mask b) {
             auto &op = m[i][coordinate_index(y)][coordinate_index(x)];
@@ -315,7 +289,7 @@ class clique_sampler {
         total(init_total()),
         empty(total.size() == 0) {}
 
-    bool sample(bigbadint &index, vector<vector<size_t>> &emb) const {
+    bool unrank(bigbadint index, vector<vector<size_t>> &emb) const {
         emb.clear();
         size_y y = 0;
         size_x x = 0;
@@ -354,7 +328,11 @@ class clique_sampler {
         if (empty)
             return false;
         bigbadint index = total.random_mod(rng);
-        return sample(index, emb);
+        return unrank(index, emb);
+    }
+
+    const bigbadint &get_total() const {
+        return total;
     }
 };
 
@@ -366,28 +344,13 @@ class const_list {
         template<typename ...Args>
         entry(entry *next, Args &&...args) : item(std::forward<Args>(args)...), next(next) {}
     } entry;
-    class iterator {
-        entry *cur;
-      public:
-        iterator(entry *cur) : cur(cur) {}
-        iterator operator++() { cur = cur->next; return *this; }
-        bool operator!=(const iterator &other) { return cur != other.cur; }
-        const T &operator*() { return cur->item; }
-    };
     entry *head;
   public:
     const_list() : head(nullptr) {}
-    ~const_list() {
-        if (head != nullptr) {
-            decapitate();
-            pop();
-        }
-    }
+    ~const_list() { while (head != nullptr) pop(); }
     template<typename ...Args>
-    void emplace(Args &...args) {
-        head = new entry(head, args...);
-    }
-    void decapitate() {
+    void emplace(Args &...args) { head = new entry(head, args...); }
+    void truncate() {
         entry *cur = head->next;
         while (cur != nullptr) {
             entry *next = cur->next;
@@ -402,6 +365,15 @@ class const_list {
         head = next;
     }
     const T &back() { return head->item; }
+    
+    class iterator {
+        entry *cur;
+      public:
+        iterator(entry *cur) : cur(cur) {}
+        iterator operator++() { cur = cur->next; return *this; }
+        bool operator!=(const iterator &other) { return cur != other.cur; }
+        const T &operator*() { return cur->item; }
+    };
     iterator begin() { return iterator(head); }
     iterator end() { return iterator(nullptr); }
 };
@@ -421,21 +393,30 @@ class clique_sampler_collection {
         if (back.yield < yield)
             samplers.pop();
         else if (back.yield > yield) {
-            samplers.decapitate();
+            samplers.truncate();
             yield = back.yield;
             total = back.total;
         } else {
             total += back.total;
         }
     }
+    
+    bool unrank(bigbadint index, vector<vector<size_t>> &emb) {
+        for (auto &sampler: samplers) {
+            if (!index.trysubtract(sampler.total))
+                return sampler.unrank(index, emb);
+        }
+        return false;
+    }
+    
     template<typename R>
     bool sample(R &rng, vector<vector<size_t>> &emb) {
         bigbadint index = total.random_mod(rng);
-        for (auto &sampler: samplers) {
-            if (!index.trysubtract(sampler.total))
-                return sampler.sample(index, emb);
-        }
-        return false;
+        return unrank(index, emb);
+    }
+    
+    const bigbadint &get_total() const {
+        return total;
     }
 };
 

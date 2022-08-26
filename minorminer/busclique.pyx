@@ -1070,6 +1070,25 @@ cdef class _pegasus_busgraph_sampler:
             raise StopIteration
         return self.parent.relabel(dict(enumerate(emb)))
 
+    def len(self):
+        t = 0
+        cdef vector[uint64_t] total = self.csc.get_total()
+        for x in total:
+            t <<= 64
+            t += x
+        return t
+
+    def __getitem__(self, i):
+        cdef embedding_t emb
+        cdef vector[uint64_t] index
+        if i > self.len() or i < 0:
+            raise IndexError("enumerator index out of range")
+        while i > 0:
+            index.push_back(i & 0xFFFFFFFFFFFFFFFFULL);
+            i >>= 64
+        if not self.csc.unrank(index, emb):
+            raise RuntimeError("item extraction failed.  report this bug.")
+        return self.parent.relabel(dict(enumerate(emb)))
 
 cdef class _chimera_busgraph:
     """Class for managing a single Chimera graph, and dispatches various
@@ -1189,15 +1208,17 @@ cdef class _chimera_busgraph:
         else:
             return self.topo.topo.fragment_nodes(nodes)
 
-
-    def random_max_cliques(self, size_t width, seed=None):
-        return _chimera_busgraph_sampler(self, width, seed)
+    def random_max_cliques(self, size_t max_chainlength, seed=None):
+        return _chimera_busgraph_sampler(self, max_chainlength, seed)
 
 cdef class _chimera_busgraph_sampler:
-    cdef clique_sampler[chimera_spec] *cs
+    cdef clique_sampler_collection[chimera_spec] csc
     cdef fastrng rng
     cdef _chimera_busgraph parent
-    def __cinit__(self, _chimera_busgraph parent, size_t width, seed):
+    def __cinit__(self, _chimera_busgraph parent, size_t max_chainlength, seed):
+        cdef size_t w
+        cdef size_t w0 = 2
+        cdef size_t w1 = min(coordinate_index(parent.topo[0].topo.dim_x), coordinate_index(parent.topo[0].topo.dim_y))
         cdef uint64_t internal_seed
         cdef uint64_t mask_bound = parent.topo[0].get_mask_bound()
         cdef bundle_cache[chimera_spec] *bc
@@ -1211,7 +1232,10 @@ cdef class _chimera_busgraph_sampler:
         parent.topo[0].reset()
         parent.topo[0].set_mask_bound(mask_bound)
         bc = new bundle_cache[chimera_spec](parent.topo[0].cells);
-        self.cs = new clique_sampler[chimera_spec](bc[0], width)
+        if max_chainlength:
+            w0 = w1 = max_chainlength-1
+        for w in range(w0, w1+1):
+            self.csc.emplace(bc[0], w)
         del bc
 
     def __iter__(self):
@@ -1219,11 +1243,29 @@ cdef class _chimera_busgraph_sampler:
 
     def __next__(self):
         cdef embedding_t emb
-        self.cs.sample(self.rng, emb)
+        if not self.csc.sample(self.rng, emb):
+            raise StopIteration
         return self.parent.relabel(dict(enumerate(emb)))
 
-    def __dealloc__(self):
-        del self.cs
+    def len(self):
+        t = 0
+        cdef vector[uint64_t] total = self.csc.get_total()
+        for x in total:
+            t <<= 64
+            t += x
+        return t
+
+    def __getitem__(self, i):
+        cdef embedding_t emb
+        cdef vector[uint64_t] index
+        if i > self.len() or i < 0:
+            raise IndexError("enumerator index out of range")
+        while i > 0:
+            index.push_back(i & 0xFFFFFFFFFFFFFFFFULL);
+            i >>= 64
+        if not self.csc.unrank(index, emb):
+            raise RuntimeError("item extraction failed.  report this bug.")
+        return self.parent.relabel(dict(enumerate(emb)))
 
 def _default_quality_function(emb):
     """A function that returns a tuple corresponds to the "quality" of the embedding.

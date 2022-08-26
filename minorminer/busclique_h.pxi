@@ -79,11 +79,16 @@ cdef extern from "../include/busclique/clique_sampler.hpp" namespace "busclique"
     cdef cppclass clique_sampler[T]:
         clique_sampler(bundle_cache[T] &, size_t, size_t)
         clique_sampler(bundle_cache[T] &, size_t)
+        bool unrank(vector[uint64_t] &, embedding_t &)
         bool sample(fastrng &, embedding_t &)
+        vector[uint64_t] get_total()
     cdef cppclass clique_sampler_collection[T]:
         clique_sampler_collection()
         void emplace(bundle_cache[T] &, size_t, size_t)
+        void emplace(bundle_cache[T] &, size_t)
+        bool unrank(vector[uint64_t] &, embedding_t &)
         bool sample(fastrng &, embedding_t &)
+        vector[uint64_t] get_total()
 
 cdef extern from "../include/busclique/topo_cache.hpp" namespace "busclique":
     cdef cppclass topo_cache[T]:
