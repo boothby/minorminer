@@ -131,6 +131,62 @@ def find_clique_embedding(nodes, g, seed = _no_seed, use_cache = True):
             seed = None
         return busgraph(g, seed=seed).find_clique_embedding(nodes)
 
+_no_seed = object()
+def find_triclique_embedding(cliq_w, bip_v, bip_h, g, seed = _no_seed):
+    """Finds a clique embedding in the graph ``g`` using a polynomial-time
+    algorithm.
+
+    Args:
+        nodes (int/iterable):
+            A number (indicating the size of the desired clique) or an
+            iterable (specifying the node labels of the desired clique).
+
+        g (NetworkX Graph):
+            The target graph that is either a :func:`dwave_networkx.chimera_graph`
+            or :func:`dwave_networkx.pegasus_graph`.
+
+        seed (int, optional):
+            A seed for an internal random number generator.  If ``use_cache`` is
+            True, then the seed defaults to an internally-defined value which
+            is consistent between runs.  Otherwise, a seed is generated from the
+            current python random state.
+
+    Returns:
+        dict: An embedding of node labels (either nodes, or range(nodes)) mapped
+        to chains of a clique embedding.
+
+    Note:
+        Due to internal optimizations, not all Chimera graphs are supported by
+        this code. Specifically, the graphs :func:`dwave_networkx.chimera_graph(m, n, t)`
+        are only supported for :math:`t<=8`. The code currently supports D-Wave
+        products, which have :math:`t=4`, but not all graphs. For graphs with
+        :math:`t>8`, use the legacy chimera-embedding package.
+
+    Note:
+        When the cache is used, clique embeddings of all sizes are computed
+        and cached. This takes somewhat longer than a single embedding, but tends
+        to pay off after a fairly small number of calls. An exceptional use case
+        is when there are a large number of missing internal couplers, where the
+        result is nondeterministic -- avoiding the cache in this case may be
+        preferable.
+
+    """
+    try:
+        graphdata = g.graph
+        family = graphdata['family']
+        busgraph = {'pegasus': _pegasus_busgraph,
+                    'zephyr': _zephyr_busgraph,
+                    'chimera': _chimera_busgraph}[family]
+    except (AttributeError, KeyError):
+        raise ValueError(("input graph must either be a "
+                          "dwave_networkx.pegasus_graph, "
+                          "dwave_networkx.chimera_graph or "
+                          "dwave_networkx.zephyr_graph"))
+
+    if seed is _no_seed:
+        seed = None
+    return busgraph(g, seed=seed).find_triclique_embedding(cliq_w, bip_v, bip_h)
+
 class busgraph_cache:
     """A cache class for Chimera, Pegasus and Zephyr graphs, and their
     associated cliques and bicliques.
@@ -897,6 +953,11 @@ cdef class _zephyr_busgraph:
             return {}
         return self.relabel(dict(zip(nodes, emb)))
 
+    def find_triclique_embedding(self, cliq_w, bip_v, bip_h):
+        cdef embedding_t emb
+        find_triclique_raw(self.topo[0], cliq_w, bip_v, bip_h, emb)
+        return self.relabel(dict(enumerate(emb)))
+
     def fragment_graph_spec(self):
         m = coordinate_index(self.topo.topo.dim_y)
         n = coordinate_index(self.topo.topo.dim_x)
@@ -1009,6 +1070,11 @@ cdef class _pegasus_busgraph:
         elif not find_clique(self.topo[0], num, emb):
             return {}
         return self.relabel(dict(zip(nodes, emb)))
+
+    def find_triclique_embedding(self, cliq_w, bip_v, bip_h):
+        cdef embedding_t emb
+        find_triclique_raw(self.topo[0], cliq_w, bip_v, bip_h, emb)
+        return self.relabel(dict(enumerate(emb)))
 
     def fragment_graph_spec(self):
         m = coordinate_index(self.topo.topo.dim_y)
@@ -1127,6 +1193,11 @@ cdef class _chimera_busgraph:
         elif not find_clique(self.topo[0], num, emb):
             return {}
         return self.relabel(dict(zip(nodes, emb)))
+
+    def find_triclique_embedding(self, cliq_w, bip_v, bip_h):
+        cdef embedding_t emb
+        find_triclique_raw(self.topo[0], cliq_w, bip_v, bip_h, emb)
+        return self.relabel(dict(enumerate(emb)))
 
     def fragment_graph_spec(self):
         m = coordinate_index(self.topo.topo.dim_y)

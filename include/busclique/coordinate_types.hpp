@@ -189,6 +189,7 @@ class coordinate_base {
     constexpr coordinate_base() {}
     constexpr coordinate_base(size_t v) : v(v) {}
     coordinate_base(const coordinate_base<T> &c) : v(c.v) {}
+    operator bool() const { return this->v; }
     cb operator++(int) { cb t = *this; v++; return t; }
     cb operator--(int) { cb t = *this; v--; return t; }
     cb &operator++() { v++; return *this; }

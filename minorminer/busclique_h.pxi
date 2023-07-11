@@ -82,6 +82,10 @@ cdef extern from "../include/busclique/find_clique.hpp" namespace "busclique":
 cdef extern from "../include/busclique/find_biclique.hpp" namespace "busclique":
     void best_bicliques[T](topo_cache[T], vector[pair[pair[size_t, size_t], embedding_t]] &)
 
+cdef extern from "../include/busclique/find_triclique.hpp" namespace "busclique":
+#    int find_triclique[T](topo_cache[T] &, size_t, size_t, size_t, embedding_t &)
+    int find_triclique_raw[T](topo_cache[T] &, size_t, size_t, size_t, embedding_t &)
+    
 cdef extern from "../include/busclique/coordinate_types.hpp" namespace "busclique":
     cdef cppclass size_y:
         pass

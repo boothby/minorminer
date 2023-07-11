@@ -186,8 +186,8 @@ class biclique_yield_cache {
         cells(c),
         bundles(b),
 
-        rows(cells.topo.dim_x*cells.topo.shore),
-        cols(cells.topo.dim_y*cells.topo.shore),
+        rows(cells.topo.dim_x*size_x(cells.topo.shore)),
+        cols(cells.topo.dim_y*size_y(cells.topo.shore)),
 
         chainlength(coordinate_index(rows), vector<size_t>(coordinate_index(cols), 0)),
         biclique_bounds(coordinate_index(rows), vector<bound_t>(coordinate_index(cols), bound_t(0,0,0,0))) {

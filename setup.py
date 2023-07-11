@@ -40,7 +40,7 @@ mm_compile_args = {
 
 if '--debug' in sys.argv or '-g' in sys.argv or 'CPPDEBUG' in os.environ:
     mm_compile_args['msvc'].append('/DCPPDEBUG')
-    base_compile_args['unix'] = ['-std=c++17', '-Wall', '-O0', '-g', '-fipa-pure-const']
+    mm_compile_args['unix'] = ['-std=c++17', '-Wall', '-O0', '-g', '-fipa-pure-const']
 
 
 glasgow_compile_args = {

@@ -64,15 +64,25 @@ class clique_cache {
     const cell_cache<topo_spec> &cells;
     const bundle_cache<topo_spec> &bundles;
     const size_t width;
+    const size_t bip_v, bip_h;
     size_t *mem;
 
     size_t memrows(size_t i) const {
-        if (i < width) return coordinate_index(cells.topo.dim_y)-i;
+        if (i < width) 
+            if (coordinate_index(cells.topo.dim_y) >= i) 
+                return coordinate_index(cells.topo.dim_y)-i;
+            else
+                return 0;
         else if (i == width) return 1;
         else throw "memrows";
     }
+
     size_t memcols(size_t i) const {
-        if (i + 1 < width) return coordinate_index(cells.topo.dim_x)-width+i+2;
+        if (i + 1 < width)
+            if (coordinate_index(cells.topo.dim_x)+i+2 > width)
+                return coordinate_index(cells.topo.dim_x)-width+i+2;
+            else
+                return 0;
         else if (i + 1 == width) return coordinate_index(cells.topo.dim_x);
         else throw "memcols";
     }
@@ -95,9 +105,19 @@ class clique_cache {
 
     template<typename C>
     clique_cache(const cell_cache<topo_spec> &c, const bundle_cache<topo_spec> &b, size_t w, C &check) : 
+        clique_cache(c, b, w, 0, 0, check) {}
+
+
+    clique_cache(const cell_cache<topo_spec> &c, const bundle_cache<topo_spec> &b, size_t w, size_t bv, size_t bh) :
+        clique_cache(c, b, w, bv, bh, nocheck) {}
+
+    template<typename C>
+    clique_cache(const cell_cache<topo_spec> &c, const bundle_cache<topo_spec> &b, size_t w, size_t bv, size_t bh, C &check) : 
             cells(c),
             bundles(b),
             width(w),
+            bip_v(bv),
+            bip_h(bh),
             mem(new size_t[memsize()]{}) {
         minorminer_assert(size_y(width) <= cells.topo.dim_y);
         minorminer_assert(size_x(width) <= cells.topo.dim_x);
@@ -133,27 +153,86 @@ class clique_cache {
         }
     }
   private:
+    struct horizontal_part {
+        const bundle_cache<topo_spec> &bundles;
+        size_y bip_height;
+        size_x bip_width;
+        horizontal_part(const bundle_cache<topo_spec> &b, size_y h, size_x w) : bundles(b), bip_height(h), bip_width(w) {}
+        
+        // compute the number of horizontal chains spanning the rectangle
+        // [x0, x0+bip_width] \times [y0, y0+bip_height]
+        size_t score(size_y y, size_x x0) {
+            size_t s = 0;
+            for (size_x x = x0; x <= x0 + bip_width; x++)
+                s += bundles.get_line_score(1, x, y0, y0+bip_height);
+            return s;
+        }
+        
+        void inflate(size_y y, size_x x, vector<vector<size_t>> &emb) {
+            bundles.inflate(1, y, y+bip_height, x, x+bip_width);
+        }
+    };
+
+    struct vertical_part {
+        const bundle_cache<topo_spec> &bundles;
+        size_y bip_height;
+        size_x bip_width;
+        vertical_part(const bundle_cache<topo_spec> &b, size_y h, size_x w) : bundles(b), bip_height(h), bip_width(w) {}
+
+        // compute the number of vertical chains spanning the rectangle
+        // [x0, x0+bip_width] \times [y0, y0+bip_height]
+        size_t score(size_y y, size_x x) {
+            size_t s = 0;
+            for (size_y y = y0; y <= y0 + bip_height; y++)
+                s += bundles.get_line_score(0, y, x0, x0+bip_width);
+            return s;
+        }
+
+        void inflate(size_y y, size_x x, vector<vector<size_t>> &emb) {
+            bundles.inflate(0, y, y+bip_height, x, x+bip_width);
+        }
+    };
+    
     
     template<typename C>
     void compute_cache(C &check) {
         {
-            size_y h = 1;
-            size_x w = width;
+            size_y h = 1 + bip_h;
+            size_x w = width - bip_h;
             auto zero = zerocache();
-            extend_cache(zero, h, w, check, corner::SW, corner::SE);
+            // note to Jose:
+            // when bip_h is nonzero, we need to replace this "zerocache" with
+            // something that implements a maxcache-like interface, i.e. the
+            // horizontal_part struct above (double-check orientation, I'm 
+            // constantly getting this wrong).  You'll need to make sure that
+            // the computed score is the right-sized rectangle corresponding
+            // to the sum of scores computed therein.  Also make sure that 
+            // the rectangle spanned by horizontal_part fits tightly with the
+            // clique shape.
+            // ~~~ busgraph_cache.draw_fragment_embedding is your friend ~~~
+            if (bip_h)
+                extend_cache(zero, h, w, check, corner::NE, corner::NW, corner::SW, corner::SE);
+            else
+                extend_cache(zero, h, w, check, corner::SW, corner::SE);            
         }
-        for(size_t i = 1; i < width-1; i++) {
+        for(size_t i = 1 + bip_h; i < width-1-bip_v; i++) {
             size_y h = i+1;
             size_x w = width-i;
             maxcache prev = get(coordinate_index(h-2_y));
             extend_cache(prev, h, w, check, corner::NE, corner::NW, corner::SW, corner::SE);
         }
         {
-            size_y h = width;
-            size_x w = 1;
+            size_y h = width-bip_v;
+            size_x w = 1+bip_v;
             maxcache prev = get(coordinate_index(h-2_y));
-            extend_cache(prev, h, w, check, corner::NE, corner::SE);
+            if (bip_v)
+                extend_cache(prev, h, w, check, corner::NE, corner::NW, corner::SW, corner::SE);
+            else
+                extend_cache(prev, h, w, check, corner::NE, corner::SE);
         }
+        // note to Jose: if bip_v is nonzero, it feels like we need one last 
+        // cache extension here... but it might be easier to do that in 
+        // `extract_solution` at slight cost to performance
     }
 
     template<typename T, typename C, typename ... Corners>
@@ -180,10 +259,10 @@ class clique_cache {
         size_x next_x, prev_x, xc; next_x = prev_x = xc = x0;
         corner skip_c;
         switch(c) {
-            case corner::NW: next_x = x0+1u; prev_y = y0+1u; skip_c = corner::NWskip; break;
-            case corner::SW: next_x = x0+1u; yc = y1;        skip_c = corner::SWskip; break;
-            case corner::NE: xc = x1;        prev_y = y0+1u; skip_c = corner::NEskip; break;
-            case corner::SE: xc = x1;        yc = y1;        skip_c = corner::SEskip; break;
+            case corner::NW: next_x = x0+1_x; prev_y = y0+1_y; skip_c = corner::NWskip; break;
+            case corner::SW: next_x = x0+1_x; yc = y1;         skip_c = corner::SWskip; break;
+            case corner::NE: xc = x1;         prev_y = y0+1_y; skip_c = corner::NEskip; break;
+            case corner::SE: xc = x1;         yc = y1;         skip_c = corner::SEskip; break;
             default: throw std::exception();
         }
         size_t score = prev.score(prev_y, prev_x);
@@ -217,7 +296,11 @@ class clique_cache {
         size_y by;
         size_x bx;
         size_t bscore=0;
-        maxcache scores = get(width-1);
+        maxcache scores = get(width-bip_v-1);
+        // note to Jose: make a vertical_part struct here, and find the maximum
+        // of `scores.score(y, x) + vpart.score(y, x)` -- again, make sure that
+        // there are no off-by-one errors by looking for a tight fit.
+        // ~~~ busgraph_cache.draw_fragment_embedding is your friend ~~~
         for(size_y y = 0; y < scores.rows; y++) {
             for(size_x x = 0; x < scores.cols; x++) {
                 size_t s = scores.score(y, x);
@@ -227,12 +310,18 @@ class clique_cache {
             }
         }
         if(bscore == 0) return false;
+        // inflate the vertical_part here
+        // and then, maybe, push an empty chain into the embedding to demark
+        // where the vertical chains end
         corner bc = static_cast<corner>(scores.corners(by, bx));
-        for(size_t i = width-1; i-- > 0;) {
+        for(size_t i = width-bip_v-1; i-- > bip_h;) {
             inflate_first_ell(emb, by, bx, i+1, width-2-i, bc);
             bc = static_cast<corner>(get(i).corners(by, bx));
         }
-        inflate_first_ell(emb, by, bx, 0, width-1, bc);
+        inflate_first_ell(emb, by, bx, bip_h, width-bip_h-1, bc);
+        // again; consider a sentinal empty chain
+        // then inflate the horizontal_part here.
+        
         return true;
     }
 };
