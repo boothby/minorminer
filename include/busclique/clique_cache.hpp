@@ -164,7 +164,7 @@ class clique_cache {
         size_t score(size_y y, size_x x0) {
             size_t s = 0;
             for (size_x x = x0; x <= x0 + bip_width; x++)
-                s += bundles.get_line_score(1, x, y0, y0+bip_height);
+                s += bundles.get_line_score(1, x, y, y+bip_height);
             return s;
         }
         
@@ -181,10 +181,10 @@ class clique_cache {
 
         // compute the number of vertical chains spanning the rectangle
         // [x0, x0+bip_width] \times [y0, y0+bip_height]
-        size_t score(size_y y, size_x x) {
+        size_t score(size_y y0, size_x x) {
             size_t s = 0;
             for (size_y y = y0; y <= y0 + bip_height; y++)
-                s += bundles.get_line_score(0, y, x0, x0+bip_width);
+                s += bundles.get_line_score(0, y, x, x+bip_width);
             return s;
         }
 
