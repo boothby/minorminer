@@ -816,9 +816,9 @@ cdef class _zephyr_busgraph:
         cdef size_t rows = g.graph['rows']
         cdef size_t cols = g.graph['columns']
         cdef size_t tile = g.graph['tile']
-        if tile > 4:
+        if tile > 8:
             raise NotImplementedError(("this clique embedder supports zephyr "
-                                       "graphs with a tile size of 4 or less"))
+                                       "graphs with a tile size of 8 or less"))
 
         cdef uint32_t internal_seed
         if seed is None:

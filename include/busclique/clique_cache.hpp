@@ -196,7 +196,7 @@ class clique_cache {
 
     corner inflate_first_ell(vector<vector<size_t>> &emb,
                              size_y &y, size_x &x, size_y h, size_x w, corner c) const {
-        corner c0 = static_cast<corner>(1<< first_bit[c]);
+        corner c0 = static_cast<corner>(1<< first_bit(c));
         switch(c0) {
             case corner::NW: x--; bundles.inflate(y,  x,  y,y+h,x,x+w, emb); y++; break;
             case corner::SW: x--; bundles.inflate(y+h,x,  y,y+h,x,x+w, emb);      break;

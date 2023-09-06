@@ -25,7 +25,7 @@ class bundle_cache {
 //  private:
     const size_t linestride[2];
     const size_t orthstride;
-    uint8_t *line_mask;
+    shore_t *line_mask;
     //prevent double-frees by forbidding moving & copying
     bundle_cache(const bundle_cache&) = delete;
     bundle_cache(bundle_cache &&) = delete;
@@ -41,7 +41,7 @@ class bundle_cache {
                  cells(c),
                  linestride{binom(c.topo.dim_y), binom(c.topo.dim_x)},
                  orthstride(coordinate_index(c.topo.dim_x)*linestride[0]),
-                 line_mask(new uint8_t[orthstride + coordinate_index(c.topo.dim_y)*linestride[1]]{}) {
+                 line_mask(new shore_t[orthstride + coordinate_index(c.topo.dim_y)*linestride[1]]{}) {
         compute_line_masks();
     }
 
@@ -54,15 +54,15 @@ class bundle_cache {
 
     void inflate(size_y yc, size_x xc, size_y y0, size_y y1, size_x x0, size_x x1,
                  vector<vector<size_t>> &emb) const {
-        uint8_t k0 = get_line_mask(0, vert(xc), vert(y0), vert(y1));
-        uint8_t k1 = get_line_mask(1, horz(yc), horz(x0), horz(x1));
+        shore_t k0 = get_line_mask(0, vert(xc), vert(y0), vert(y1));
+        shore_t k1 = get_line_mask(1, horz(yc), horz(x0), horz(x1));
         while (k0 && k1) {
             emb.emplace_back(0);
             vector<size_t> &chain = emb.back();
-            cells.topo.construct_line(0, vert(xc), vert(y0), vert(y1), first_bit[k0], chain);
-            cells.topo.construct_line(1, horz(yc), horz(x0), horz(x1), first_bit[k1], chain);
-            k0 ^= mask_bit[first_bit[k0]];
-            k1 ^= mask_bit[first_bit[k1]];
+            cells.topo.construct_line(0, vert(xc), vert(y0), vert(y1), first_bit(k0), chain);
+            cells.topo.construct_line(1, horz(yc), horz(x0), horz(x1), first_bit(k1), chain);
+            k0 ^= mask_bit(first_bit(k0));
+            k1 ^= mask_bit(first_bit(k1));
         }
     }
 
@@ -84,12 +84,12 @@ class bundle_cache {
             z0 = vert(y0); z1 = vert(y1);
         }
         for(size_w w = w0; w <= w1; w++) {
-            uint8_t k = get_line_mask(u, w, z0, z1);
+            shore_t k = get_line_mask(u, w, z0, z1);
             while(k) {
                 emb.emplace_back(0);
                 vector<size_t> &chain = emb.back();
-                cells.topo.construct_line(u, w, z0, z1, first_bit[k], chain);
-                k ^= mask_bit[first_bit[k]];
+                cells.topo.construct_line(u, w, z0, z1, first_bit(k), chain);
+                k ^= mask_bit(first_bit(k));
             }
         }
     }
@@ -99,12 +99,12 @@ class bundle_cache {
     }
 
     inline uint8_t get_line_score(bool u, size_w w, size_z z0, size_z z1) const {
-        return popcount[get_line_mask(u, w, z0, z1)];
+        return popcount(get_line_mask(u, w, z0, z1));
     }
 
   private:
   
-    inline uint8_t &get_line_mask(bool u, size_w w, size_z z0, size_z z1) const {
+    inline shore_t &get_line_mask(bool u, size_w w, size_z z0, size_z z1) const {
         minorminer_assert(u?(horz(w)<cells.topo.dim_y):(vert(w)<cells.topo.dim_x));
         minorminer_assert(z0 <= z1);
         minorminer_assert(u?(horz(z1)<cells.topo.dim_x):(vert(z1)<cells.topo.dim_y));
@@ -114,7 +114,7 @@ class bundle_cache {
     }
 
     void compute_line_masks() {
-        uint8_t *mask = line_mask;
+        shore_t *mask = line_mask;
         struct {bool u; size_w dim_w; size_z dim_z; } sides[2] = {
             {0, vert(cells.topo.dim_x), vert(cells.topo.dim_y)},
             {1, horz(cells.topo.dim_y), horz(cells.topo.dim_x)},
@@ -124,7 +124,7 @@ class bundle_cache {
                 for (size_z z = 0; z < side.dim_z; z++) {
                     mask+= coordinate_index(z);
                     minorminer_assert(mask+coordinate_index(z) == &get_line_mask(side.u, w, z, z));
-                    uint8_t m = mask[coordinate_index(z)] = cells.qmask(side.u, w, z);
+                    shore_t m = mask[coordinate_index(z)] = cells.qmask(side.u, w, z);
                     for(size_z z0 = z; z0-->0_z;) {
                         minorminer_assert(mask+coordinate_index(z0) == &get_line_mask(side.u, w, z0, z));
                         m = mask[coordinate_index(z0)] = m & cells.emask(side.u, w, z0+1_z);

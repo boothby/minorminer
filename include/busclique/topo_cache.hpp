@@ -25,9 +25,9 @@ class topo_cache {
   public:
     const topo_spec topo;
   private:
-    fat_pointer<uint8_t> nodemask;
-    fat_pointer<uint8_t> edgemask;
-    fat_pointer<uint8_t> badmask;
+    fat_pointer<shore_t> nodemask;
+    fat_pointer<shore_t> edgemask;
+    fat_pointer<shore_t> badmask;
     vector<pair<size_t, size_t>> bad_edges;
     uint64_t mask_num;
     uint64_t mask_bound;
@@ -38,8 +38,8 @@ class topo_cache {
     class _initializer_tag {};
     _initializer_tag _init;
 
-    uint8_t *child_nodemask;
-    uint8_t *child_edgemask;
+    shore_t *child_nodemask;
+    shore_t *child_edgemask;
   public:
     const cell_cache<topo_spec> cells;
 
@@ -81,20 +81,20 @@ class topo_cache {
         return topo.serialize(serialize_tag{}, output, nodemask, edgemask, badmask);
     }
 
-    vector<size_t> fragment_nodes(const uint8_t *nmask = nullptr) const {
+    vector<size_t> fragment_nodes(const shore_t *nmask = nullptr) const {
         if (nmask == nullptr) nmask = nodemask;
         vector<size_t> nodes;
         size_t q = 0;
         for (size_y y = 0; y < topo.dim_y; y++) {
             for (size_x x = 0; x < topo.dim_x; x++) {
-                for (uint8_t k = 0; k < topo.shore; k++) {
-                    if (nmask[topo.cell_index(0, vert(x), vert(y))]&mask_bit[k])
+                for (shore_t k = 0; k < topo.shore; k++) {
+                    if (nmask[topo.cell_index(0, vert(x), vert(y))]&mask_bit(k))
                         nodes.push_back(q);
                     minorminer_assert(q == topo.chimera_linear(y, x, 0, k));
                     q++;
                 }
-                for (uint8_t k = 0; k < topo.shore; k++) {
-                    if (nmask[topo.cell_index(1, horz(y), horz(x))]&mask_bit[k])
+                for (shore_t k = 0; k < topo.shore; k++) {
+                    if (nmask[topo.cell_index(1, horz(y), horz(x))]&mask_bit(k))
                         nodes.push_back(q);
                     minorminer_assert(q == topo.chimera_linear(y, x, 1, k));
                     q++;
@@ -104,27 +104,27 @@ class topo_cache {
         return nodes;
     }
     
-    vector<pair<size_t, size_t>> fragment_edges(const uint8_t *nmask = nullptr, const uint8_t *emask = nullptr) const {
+    vector<pair<size_t, size_t>> fragment_edges(const shore_t *nmask = nullptr, const shore_t *emask = nullptr) const {
         if (nmask == nullptr) nmask = nodemask;
         if (emask == nullptr) emask = edgemask;
         vector<pair<size_t, size_t>> edges;
         size_t q = 0;
         for (size_y y = 0; y < topo.dim_y; y++) {
             for (size_x x = 0; x < topo.dim_x; x++) {
-                for (uint8_t k = 0; k < topo.shore; k++) {
-                    if (emask[topo.cell_index(0, vert(x), vert(y))]&mask_bit[k])
+                for (shore_t k = 0; k < topo.shore; k++) {
+                    if (emask[topo.cell_index(0, vert(x), vert(y))]&mask_bit(k))
                         edges.emplace_back(q, topo.chimera_linear(y-1_y, x, 0, k));
-                    if (nmask[topo.cell_index(0, vert(x), vert(y))]&mask_bit[k]) {
-                        for (uint8_t k1 = 0; k1 < topo.shore; k1++) {
-                            if (nmask[topo.cell_index(1, horz(y), horz(x))]&mask_bit[k1]&~badmask[q])
+                    if (nmask[topo.cell_index(0, vert(x), vert(y))]&mask_bit(k)) {
+                        for (shore_t k1 = 0; k1 < topo.shore; k1++) {
+                            if (nmask[topo.cell_index(1, horz(y), horz(x))]&mask_bit(k1)&~badmask[q])
                                 edges.emplace_back(q, topo.chimera_linear(y, x, 1, k1));
                         }
                     }
                     minorminer_assert(q == topo.chimera_linear(y, x, 0, k));
                     q++;
                 }
-                for (uint8_t k = 0; k < topo.shore; k++) {
-                    if (emask[topo.cell_index(1, horz(y), horz(x))]&mask_bit[k])
+                for (shore_t k = 0; k < topo.shore; k++) {
+                    if (emask[topo.cell_index(1, horz(y), horz(x))]&mask_bit(k))
                         edges.emplace_back(q, topo.chimera_linear(y, x-1_x, 1, k));
                     minorminer_assert(q == topo.chimera_linear(y, x, 1, k));
                     q++;
@@ -154,8 +154,8 @@ class topo_cache {
         topo.finish_badmask(nodemask, badmask);
         compute_bad_edges();
         if(bad_edges.size() > 0) {
-            child_nodemask = new uint8_t[topo.num_cells()];
-            child_edgemask = new uint8_t[topo.num_cells()];
+            child_nodemask = new shore_t[topo.num_cells()];
+            child_edgemask = new shore_t[topo.num_cells()];
         } else {
             child_nodemask = nodemask;
             child_edgemask = edgemask;
@@ -169,11 +169,11 @@ class topo_cache {
         for(size_y y = 0; y < topo.dim_y; y++)
             for(size_x x = 0; x < topo.dim_x; x++) {
                 //only iterate over the vertical qubits to avoid duplication
-                for(uint8_t k = 0; k < topo.shore; k++) {
-                    uint8_t mask = badmask[q];
+                for(shore_t k = 0; k < topo.shore; k++) {
+                    shore_t mask = badmask[q];
                     while(mask) {
-                        uint8_t badk = first_bit[mask];
-                        mask ^= mask_bit[badk];
+                        shore_t badk = first_bit(mask);
+                        mask ^= mask_bit(badk);
                         bad_edges.emplace_back(q, topo.chimera_linear(y, x, 1, badk));
                     }
                     minorminer_assert(q == topo.chimera_linear(y, x, 0, k));
@@ -252,16 +252,16 @@ class topo_cache {
             size_y y;
             size_x x;
             bool u;
-            uint8_t k;
+            shore_t k;
             topo.linear_chimera(q, y, x, u, k);
-            child_nodemask[topo.cell_index(y, x, u)] &= ~mask_bit[k];
-            child_edgemask[topo.cell_index(y, x, u)] &= ~mask_bit[k];
+            child_nodemask[topo.cell_index(y, x, u)] &= ~mask_bit(k);
+            child_edgemask[topo.cell_index(y, x, u)] &= ~mask_bit(k);
             if(u) {
                 if (x+1_x < topo.dim_x) 
-                    child_edgemask[topo.cell_index(y, x+1_x, u)] &= ~mask_bit[k];
+                    child_edgemask[topo.cell_index(y, x+1_x, u)] &= ~mask_bit(k);
             } else {
                 if (y+1_y < topo.dim_y) 
-                    child_edgemask[topo.cell_index(y+1_y, x, u)] &= ~mask_bit[k];
+                    child_edgemask[topo.cell_index(y+1_y, x, u)] &= ~mask_bit(k);
             }
         }
         return true;
